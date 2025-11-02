@@ -114,9 +114,12 @@ class StableTextProcessor:
                 L = len(seg['word'])
                 p = 1 - pow(1 - (chars / L if L else 1), 2)
                 w = seg['width'] * min(1, p)
-                hld.rectangle([seg['x']-4, seg['y']+4,
-                               seg['x']+w, seg['y']+self.line_height+4],
-                              fill=HIGHLIGHT_COLOR)
+if w > 0:
+    x0 = seg['x'] - 4
+    x1 = seg['x'] + w
+    if x1 > x0:
+        hld.rectangle([x0, seg['y'] + 4, x1, seg['y'] + self.line_height + 4],
+                      fill=HIGHLIGHT_COLOR)
 
         y = base_y
         for line in lines:
