@@ -1,8 +1,8 @@
 # ==========================================================
-# ✅ VIDEO GENERATOR BETA FINAL V3
-# (Smooth Highlight + Multi-line Title Fix)
+# ✅ VIDEO GENERATOR BETA FINAL V4
+# (MoviePy-native smooth highlight animation)
 # ==========================================================
-from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips
+from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips, VideoClip
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import os, re, sys
@@ -11,7 +11,9 @@ import os, re, sys
 VIDEO_SIZE = (720, 1280)
 BG_COLOR = (0, 0, 0)
 TEXT_COLOR = (255, 255, 255, 255)
-FPS = 24
+FPS = 30  # fps lebih tinggi agar smooth
+HIGHLIGHT_COLOR = (0, 124, 188, 255)
+OVERLAY_FILE = "semangat.png"
 
 FONTS = {
     "upper": "ProximaNova-Bold.ttf",
@@ -19,9 +21,6 @@ FONTS = {
     "subjudul": "ProximaNova-Regular.ttf",
     "isi": "Poppins-Bold.ttf",
 }
-
-OVERLAY_FILE = "semangat.png"
-HIGHLIGHT_COLOR = (0, 124, 188, 255)
 
 # ---------- FONT UTILITY ----------
 def load_font_safe(path, size):
@@ -32,7 +31,7 @@ def load_font_safe(path, size):
         return ImageFont.load_default()
 
 # ==========================================================
-#  STABLE TEXT PROCESSOR DENGAN HIGHLIGHT ANIMASI
+#  STABLE TEXT PROCESSOR (HALUS)
 # ==========================================================
 class StableTextProcessor:
     def __init__(self, font, max_width, margin_x=70):
@@ -87,21 +86,19 @@ class StableTextProcessor:
         return lines
 
     # ======================================================
-    #   HALUS: CONTINUOUS HIGHLIGHT ANIMATION (cubic easing)
+    #   HALUS: CONTINUOUS HIGHLIGHT ANIMATION
     # ======================================================
-    def render_lines_with_continuous_highlight(self, lines, base_y, frame_idx, total_frames):
+    def render_lines_with_progress(self, lines, base_y, progress):
         base = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
         hl_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
         txt_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
         hld = ImageDraw.Draw(hl_layer)
         td = ImageDraw.Draw(txt_layer)
 
-        progress = min(1.0, frame_idx / float(total_frames))
         all_segments = []
         total_chars = 0
         y = base_y
 
-        # Kumpulkan segmen highlight
         for line in lines:
             x = self.margin_x
             for w in line:
@@ -135,7 +132,7 @@ class StableTextProcessor:
                                        x1, seg['y'] + self.line_height + 4],
                                       fill=HIGHLIGHT_COLOR)
 
-        # Gambar teks
+        # teks
         y = base_y
         for line in lines:
             x = self.margin_x
@@ -144,12 +141,8 @@ class StableTextProcessor:
                 x += self._get_text_width(w['word'] + " ")
             y += self.line_height
 
-        return np.array(
-            Image.alpha_composite(
-                Image.alpha_composite(base, hl_layer),
-                txt_layer
-            ).convert("RGB")
-        )
+        return np.array(Image.alpha_composite(
+            Image.alpha_composite(base, hl_layer), txt_layer).convert("RGB"))
 
 # ==========================================================
 #  ADAPTIVE LAYOUT DAN RENDER
@@ -158,20 +151,25 @@ def calculate_adaptive_layout(text, font_path, size, margin_x):
     font = load_font_safe(font_path, size)
     proc = StableTextProcessor(font, VIDEO_SIZE[0], margin_x)
     lines = proc.smart_wrap_with_highlights(text)
-    base_y = int(VIDEO_SIZE[1] * 0.65)  # posisi lebih bawah
+    base_y = int(VIDEO_SIZE[1] * 0.65)
     total_h = len(lines) * proc.line_height
     batas_bawah = VIDEO_SIZE[1] - 180
     if base_y + total_h > batas_bawah:
         base_y -= min(base_y - 80, (base_y + total_h - batas_bawah) + 20)
     return {'lines': lines, 'font': font, 'processor': proc, 'base_y': base_y}
 
+# ==========================================================
+#  SMOOTH VIDEO RENDER MENGGUNAKAN make_frame
+# ==========================================================
 def render_text_block_stable(text, font_path, size, dur):
-    total_frames = int(FPS * dur)
     layout = calculate_adaptive_layout(text, font_path, size, 70)
     proc, lines, base_y = layout['processor'], layout['lines'], layout['base_y']
-    frames = [proc.render_lines_with_continuous_highlight(lines, base_y, i, total_frames)
-              for i in range(total_frames)]
-    return concatenate_videoclips([ImageClip(f, duration=1/FPS) for f in frames], method="compose")
+
+    def make_frame(t):
+        progress = min(1.0, t / dur)
+        return proc.render_lines_with_progress(lines, base_y, progress)
+
+    return VideoClip(make_frame, duration=dur).set_fps(FPS)
 
 # ==========================================================
 #  OPENING / SEPARATOR / OVERLAY
@@ -180,21 +178,27 @@ def render_opening_stable(upper, judul, subjudul, fonts):
     font_j = load_font_safe(fonts['judul'], 54)
     proc = StableTextProcessor(font_j, VIDEO_SIZE[0])
     lines = proc.smart_wrap_with_highlights(judul)
-    total_frames = int(FPS * 3)
-    frames = [proc.render_lines_with_continuous_highlight(lines, 380, i, total_frames)
-              for i in range(total_frames)]
+
+    def make_frame_j(t):
+        progress = min(1.0, t / 3.0)
+        return proc.render_lines_with_progress(lines, 380, progress)
+
+    clip_j = VideoClip(make_frame_j, duration=3).set_fps(FPS)
 
     if subjudul:
         font_s = load_font_safe(fonts['subjudul'], 36)
         proc2 = StableTextProcessor(font_s, VIDEO_SIZE[0])
         lines2 = proc2.smart_wrap_with_highlights(subjudul)
-        frames2 = [proc2.render_lines_with_continuous_highlight(lines2, 470, i, total_frames)
-                   for i in range(total_frames)]
-        frames = [Image.alpha_composite(Image.fromarray(f1).convert("RGBA"),
-                                        Image.fromarray(f2).convert("RGBA"))
-                  for f1, f2 in zip(frames, frames2)]
 
-    return concatenate_videoclips([ImageClip(np.array(f), duration=1/FPS) for f in frames], method="compose")
+        def make_frame_s(t):
+            progress = min(1.0, t / 3.0)
+            base = Image.fromarray(proc.render_lines_with_progress(lines, 380, progress))
+            sub = Image.fromarray(proc2.render_lines_with_progress(lines2, 470, progress))
+            return np.array(Image.alpha_composite(base.convert("RGBA"), sub.convert("RGBA")).convert("RGB"))
+
+        return VideoClip(make_frame_s, duration=3).set_fps(FPS)
+
+    return clip_j
 
 def render_separator_stable(dur=0.7):
     return ImageClip(np.zeros((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), np.uint8), duration=dur)
@@ -237,7 +241,6 @@ def baca_semua_berita_stable(filename):
             if not line:
                 continue
 
-            # --- deteksi tag ---
             if line.startswith("Judul:"):
                 commit_buffer()
                 if current:
