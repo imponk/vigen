@@ -1,791 +1,507 @@
 from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips
+from moviepy.video.VideoClip import VideoClip
 from PIL import Image, ImageDraw, ImageFont
-import numpy as np
-import os
-import tkinter as tk
-from tkinter import filedialog, messagebox
-import threading
-import time
-import re
-from typing import List, Dict, Tuple, Optional
+import numpy as np, os, math, re
 
-class HighlightStyle:
-    """Definisi style untuk highlighting"""
-    
-    # Default color schemes
-    BLUE_HIGHLIGHT = (0, 124, 188)      # Corporate blue
-    RED_HIGHLIGHT = (220, 50, 50)       # Alert red  
-    GREEN_HIGHLIGHT = (50, 150, 50)     # Success green
-    YELLOW_HIGHLIGHT = (255, 200, 50)   # Warning yellow
-    PURPLE_HIGHLIGHT = (150, 50, 200)   # Premium purple
-    
-    def __init__(self, 
-                 color: Tuple[int, int, int] = BLUE_HIGHLIGHT,
-                 opacity: float = 0.8,
-                 padding: int = 4,
-                 animation_speed: float = 0.25):
-        self.color = color
-        self.opacity = opacity
-        self.padding = padding
-        self.animation_speed = animation_speed
+# Konfigurasi dasar
+VIDEO_SIZE = (720, 1280)
+BG_COLOR = (0, 0, 0)
+TEXT_COLOR = (255, 255, 255, 255)
+FPS = 24
 
-class AdvancedHighlightProcessor:
-    """Advanced text highlighting dengan smooth animations"""
-    
-    def __init__(self, 
-                 font: ImageFont.FreeTypeFont,
-                 video_width: int = 720,
-                 video_height: int = 1280,
-                 margin_left: int = 70,
-                 margin_right: int = 90,
-                 bg_color: Tuple[int, int, int] = (0, 0, 0),
-                 text_color: Tuple[int, int, int] = (255, 255, 255)):
-        self.font = font
-        self.video_width = video_width
-        self.video_height = video_height
-        self.margin_left = margin_left
-        self.margin_right = margin_right
-        self.bg_color = bg_color
-        self.text_color = text_color
-        
-        # Calculate available width for text
-        self.text_width = video_width - margin_left - margin_right
-        
-        # Calculate line height from font
-        self.line_height = self._calculate_line_height()
-        
-        # Default highlight style
-        self.default_style = HighlightStyle()
-    
-    def _calculate_line_height(self) -> int:
-        """Calculate line height from font metrics"""
-        try:
-            bbox = self.font.getbbox("Ag")
-            return bbox[3] - bbox[1] + 8
-        except:
-            return int(self.font.size * 1.2)
-    
-    def parse_highlights(self, text: str) -> List[Dict]:
-        """Parse text untuk extract highlight segments"""
-        segments = []
-        current_pos = 0
-        
-        # Regex untuk mendeteksi highlights dengan optional style
-        highlight_pattern = r'\[\[(?:(\w+):)?(.*?)\]\]'
-        
-        for match in re.finditer(highlight_pattern, text):
-            start, end = match.span()
-            
-            # Add text sebelum highlight sebagai normal text
-            if start > current_pos:
-                normal_text = text[current_pos:start]
-                segments.append({
-                    'text': normal_text,
-                    'is_highlight': False,
-                    'style': None
-                })
-            
-            # Add highlighted text
-            style_name = match.group(1)
-            highlight_text = match.group(2)
-            
-            segments.append({
-                'text': highlight_text,
-                'is_highlight': True,
-                'style': style_name
-            })
-            
-            current_pos = end
-        
-        # Add remaining text
-        if current_pos < len(text):
-            remaining_text = text[current_pos:]
-            segments.append({
-                'text': remaining_text,
-                'is_highlight': False,
-                'style': None
-            })
-        
-        return segments
-    
-    def smart_wrap_with_highlights(self, text: str) -> List[List[Dict]]:
-        """Smart text wrapping yang preserve highlights"""
-        segments = self.parse_highlights(text)
-        lines = []
-        current_line = []
-        current_width = 0
-        
-        for segment in segments:
-            words = segment['text'].split()
-            
-            for word in words:
-                word_info = {
-                    'word': word,
-                    'is_highlight': segment['is_highlight'],
-                    'style': segment['style']
-                }
-                
-                word_width = self._get_text_width(word + " ")
-                
-                if current_width + word_width <= self.text_width:
-                    current_line.append(word_info)
-                    current_width += word_width
-                else:
-                    if current_line:
-                        lines.append(current_line)
-                    current_line = [word_info]
-                    current_width = word_width
-        
-        if current_line:
-            lines.append(current_line)
-        
-        return lines
-    
-    def _get_text_width(self, text: str) -> float:
-        """Get text width using font metrics"""
-        try:
-            return self.font.getlength(text)
-        except:
-            return len(text) * (self.font.size * 0.6)
-    
-    def calculate_highlight_segments(self, lines: List[List[Dict]], y_start: int) -> List[Dict]:
-        """Calculate position dan size untuk setiap highlight segment"""
-        highlight_segments = []
-        char_counter = 0
-        
-        for line_idx, line in enumerate(lines):
-            y_position = y_start + (line_idx * self.line_height)
-            x_position = self.margin_left
-            
-            for word_info in line:
-                word = word_info['word']
-                is_highlight = word_info['is_highlight']
-                style = word_info['style']
-                
-                if is_highlight:
-                    word_width = self._get_text_width(word + " ")
-                    
-                    highlight_segments.append({
-                        'text': word,
-                        'x': x_position,
-                        'y': y_position,
-                        'width': word_width,
-                        'height': self.line_height,
-                        'char_start': char_counter,
-                        'char_end': char_counter + len(word),
-                        'style': style,
-                        'line_idx': line_idx
-                    })
-                
-                word_width = self._get_text_width(word + " ")
-                x_position += word_width
-                char_counter += len(word) + 1
-        
-        return highlight_segments
-    
-    def get_highlight_style(self, style_name: Optional[str]) -> HighlightStyle:
-        """Get highlight style berdasarkan nama atau default"""
-        if not style_name:
-            return self.default_style
-        
-        styles = {
-            'blue': HighlightStyle(HighlightStyle.BLUE_HIGHLIGHT),
-            'red': HighlightStyle(HighlightStyle.RED_HIGHLIGHT),
-            'green': HighlightStyle(HighlightStyle.GREEN_HIGHLIGHT),
-            'yellow': HighlightStyle(HighlightStyle.YELLOW_HIGHLIGHT),
-            'purple': HighlightStyle(HighlightStyle.PURPLE_HIGHLIGHT),
-            'important': HighlightStyle(HighlightStyle.RED_HIGHLIGHT, opacity=0.9, animation_speed=0.2),
-            'success': HighlightStyle(HighlightStyle.GREEN_HIGHLIGHT, opacity=0.8),
-            'warning': HighlightStyle(HighlightStyle.YELLOW_HIGHLIGHT, opacity=0.7),
-            'fast': HighlightStyle(HighlightStyle.BLUE_HIGHLIGHT, animation_speed=0.15),
-            'slow': HighlightStyle(HighlightStyle.BLUE_HIGHLIGHT, animation_speed=0.4),
-        }
-        
-        return styles.get(style_name.lower(), self.default_style)
-    
-    def render_frame_with_highlights(self, 
-                                   lines: List[List[Dict]], 
-                                   y_start: int,
-                                   frame_idx: int, 
-                                   total_frames: int,
-                                   highlight_segments: List[Dict]) -> np.ndarray:
-        """Render single frame dengan progressive highlighting"""
-        
-        # Create base image
-        frame = Image.new("RGB", (self.video_width, self.video_height), self.bg_color)
-        
-        # Create highlight layer
-        highlight_layer = Image.new("RGBA", (self.video_width, self.video_height), (0, 0, 0, 0))
-        highlight_draw = ImageDraw.Draw(highlight_layer)
-        
-        # Calculate highlight progress
-        highlight_progress = min(1.0, (frame_idx / max(1, total_frames * 0.25)))
-        total_chars = sum(len(seg['text']) for seg in highlight_segments)
-        current_highlight_chars = int(total_chars * highlight_progress)
-        
-        # Draw highlights
-        highlighted_chars = 0
-        for segment in highlight_segments:
-            if highlighted_chars < current_highlight_chars:
-                chars_available = current_highlight_chars - highlighted_chars
-                chars_to_highlight = min(len(segment['text']), chars_available)
-                
-                if chars_to_highlight > 0:
-                    style = self.get_highlight_style(segment['style'])
-                    
-                    if chars_to_highlight >= len(segment['text']):
-                        highlight_width = segment['width'] - 8
-                    else:
-                        partial_text = segment['text'][:chars_to_highlight]
-                        highlight_width = self._get_text_width(partial_text)
-                    
-                    alpha = int(255 * style.opacity)
-                    highlight_color = style.color + (alpha,)
-                    
-                    # Adjust Y position (turun 6px)
-                    adjusted_y = segment['y'] + 4
-                    
-                    highlight_draw.rectangle([
-                        segment['x'] - style.padding,
-                        adjusted_y,
-                        segment['x'] + highlight_width + style.padding,
-                        adjusted_y + segment['height']
-                    ], fill=highlight_color)
-                
-                highlighted_chars += len(segment['text'])
-        
-        # Composite highlight layer
-        frame = Image.alpha_composite(frame.convert("RGBA"), highlight_layer).convert("RGB")
-        
-        # Draw text on top
-        text_draw = ImageDraw.Draw(frame)
-        
-        for line_idx, line in enumerate(lines):
-            y_position = y_start + (line_idx * self.line_height)
-            x_position = self.margin_left
-            
-            for word_info in line:
-                word = word_info['word']
-                text_draw.text((x_position, y_position), word, 
-                             font=self.font, fill=self.text_color)
-                
-                word_width = self._get_text_width(word + " ")
-                x_position += word_width
-        
-        return np.array(frame)
-    
-    def render_text_with_highlights(self, 
-                                  text: str, 
-                                  duration: float,
-                                  y_position: int = 400,
-                                  fps: int = 30) -> List[np.ndarray]:
-        """Render complete text dengan smooth highlight animation"""
-        
-        # Parse dan wrap text
-        lines = self.smart_wrap_with_highlights(text)
-        
-        # Calculate highlight segments
-        highlight_segments = self.calculate_highlight_segments(lines, y_position)
-        
-        # Generate frames
-        total_frames = int(fps * duration)
-        frames = []
-        
-        for frame_idx in range(total_frames):
-            frame = self.render_frame_with_highlights(
-                lines, y_position, frame_idx, total_frames, highlight_segments
-            )
-            frames.append(frame)
-        
-        return frames
+FONTS = {
+    "upper": "ProximaNova-Bold.ttf",
+    "judul": "DMSerifDisplay-Regular.ttf",
+    "subjudul": "ProximaNova-Regular.ttf",
+    "isi": "Poppins-Bold.ttf",
+}
 
+OVERLAY_FILE = "semangat.png"
 
-def run_headless_test():
-    """Test functionality without GUI"""
-    print("🤖 Running headless functionality test...")
-    
-    try:
-        # Test highlight parsing
-        test_text = "Test [[important:highlight]] system with [[success:multiple]] styles"
-        print(f"📝 Testing highlight parsing...")
-        
-        # Basic regex test
-        import re
-        highlight_pattern = r'\[\[(?:(\w+):)?(.*?)\]\]'
-        matches = list(re.finditer(highlight_pattern, test_text))
-        print(f"   Found {len(matches)} highlight segments ✅")
-        
-        # Test duration calculation
-        print("📝 Testing duration calculation...")
-        
-        print("✅ Core functionality test passed!")
-        print("🎬 Enhanced features ready for local GUI usage!")
-        return True
-        
-    except Exception as e:
-        print(f"⚠️ Test error: {e}")
-        return False
+# 🔥 Tambahan Konfigurasi Highlight (MINIMAL)
+HIGHLIGHT_COLOR = (0, 124, 188, 255) # Warna biru muda
+HIGHLIGHT_SPEED = 2.0 # Kecepatan swipe dalam detik
+ISILINE_PADDING = 5 # Jarak vertikal antar baris
 
-class VideoGenerator:
-    def __init__(self):
-        # Original initialization code tetap sama
-        self.setup_fonts()
-        self.setup_templates()
-        
-        # Enhanced: Initialize highlight processors
-        self.highlight_processors = {}
-        self._initialize_highlight_system()
-        
-        # GUI setup - with error handling for headless environment
-        try:
-            self.root = tk.Tk()
-            self.root.title("Enhanced Video Generator with Advanced Highlights")
-            self.root.geometry("500x600")
+# ===============================
+#   DURASI & TEKS PEMBANTU
+# ===============================
+
+def durasi_otomatis(teks, min_dur=3.5):
+    if not teks:
+        return min_dur
+    # 🔥 Modifikasi 1/3: Bersihkan markup highlight untuk hitungan kata
+    cleaned_text = re.sub(r'\[\[.*?\]\]', lambda m: m.group(0)[2:-2], teks)
+    kata = len(cleaned_text.split())
+    if kata <= 15:
+        durasi = 4
+    elif kata <= 30:
+        durasi = 5.5
+    elif kata <= 50:
+        durasi = 7
+    else:
+        durasi = 8
+    return max(min_dur, round(durasi, 1))
+
+def durasi_judul(judul, subjudul):
+    panjang = len((judul or "").split()) + len((subjudul or "").split())
+    if panjang <= 8: return 2.5
+    elif panjang <= 14: return 3.0
+    elif panjang <= 22: return 3.5
+    return 4.0
+
+def smart_wrap(text, font, max_width, margin_left=70, margin_right=90):
+    """
+    🔥 Modifikasi 2/3: Menambahkan perlindungan markup [[...]] agar tidak terpotong
+    dan dapat di-render oleh fungsi highlight.
+    """
+    if not text: return ""
+    paragraphs = text.split("\n")
+    raw_lines = []
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            raw_lines.append("")
+            continue
             
-            self.setup_gui()
-            
-            # Variables
-            self.input_folder = tk.StringVar()
-            self.output_folder = tk.StringVar()
-            self.selected_template = tk.StringVar(value="default")
-            self.processing = False
-            
-        except Exception as e:
-            if "display" in str(e).lower():
-                print("🤖 GUI not available - running in headless mode")
-                self.root = None
+        # 🔥 V61 FIX: Lindungi markup highlight dari pemotongan wrap dengan placeholder '|'
+        protected_para = re.sub(r'(\[\[.*?\]\])', lambda m: m.group(1).replace(' ', '|'), para)
+        words = protected_para.split()
+        line = ""
+        for word in words:
+            test_line = line + word + " "
+            try:
+                # Gunakan teks yang sudah dibersihkan dari placeholder '|' untuk menghitung lebar
+                dummy_img = Image.new("RGBA", (1, 1))
+                draw = ImageDraw.Draw(dummy_img)
+                bbox = draw.textbbox((0, 0), test_line.replace('|', ' '), font=font)
+                test_width = bbox[2] - bbox[0]
+            except Exception: # Fallback jika font.getbbox bermasalah
+                test_width = 1000 
+                
+            if test_width + margin_left + margin_right > max_width:
+                raw_lines.append(line.strip())
+                line = word + " "
             else:
-                raise
+                line = test_line
+        if line: raw_lines.append(line.strip())
+
+    cleaned_lines = []
+    for i in range(len(raw_lines)):
+        current_line = raw_lines[i]
+        
+        # Kembalikan placeholder '|' menjadi ' ' untuk proses pemotongan terakhir
+        current_line = current_line.replace('|', ' ')
+        
+        if i == len(raw_lines) - 1:
+            cleaned_lines.append(current_line)
+            break
+        current_line_words = current_line.split()
+        if not current_line_words:
+            cleaned_lines.append(current_line)
+            continue
+            
+        last_word = current_line_words[-1]
+        
+        if last_word.lower() in ['rp', 'ke', 'di']:
+            line_without_last_word = " ".join(current_line_words[:-1])
+            cleaned_lines.append(line_without_last_word)
+            if i + 1 < len(raw_lines):
+                # NOTE: Kata yang dipindah harus dilindungi kembali agar tidak diubah oleh .replace('|',' ') di baris berikutnya
+                word_to_move = re.sub(r'(\[\[.*?\]\])', lambda m: m.group(1).replace(' ', '|'), last_word)
+                raw_lines[i+1] = word_to_move + " " + raw_lines[i+1]
+        else:
+            cleaned_lines.append(current_line)
+            
+    return "\n".join(cleaned_lines)
+
+
+# ===============================
+#   UTILITAS FRAME
+# ===============================
+
+def make_text_frame(base_img, text, font, pos, alpha=255):
+    draw = ImageDraw.Draw(base_img)
+    fill = (TEXT_COLOR[0], TEXT_COLOR[1], TEXT_COLOR[2], alpha)
+    # FIX: Ganti spacing=4 dengan ISILINE_PADDING-1 agar konsisten dengan highlight
+    draw.multiline_text(pos, text, font=font, fill=fill, align="left", spacing=4)
+
+# 🔥 Tambahkan Fungsi Highlight Baru (Minimal Perubahan)
+def make_text_and_highlight_frame(font,text,pos,frame_idx,total_frames):
+    """
+    Fungsi baru untuk render teks isi dengan highlight geser (Termasuk Perbaikan V61).
+    """
+    margin_x,y=pos
+    hl=Image.new("RGBA",VIDEO_SIZE,(0,0,0,0))
+    tx=Image.new("RGBA",VIDEO_SIZE,(0,0,0,0))
+    dhl,dt=ImageDraw.Draw(hl),ImageDraw.Draw(tx)
     
-    def setup_fonts(self):
-        """Setup fonts - tetap sama seperti original"""
-        self.fonts = {}
-        
-        # Default font paths (flat structure)
-        font_files = [
-            "DMSerifDisplay-Regular.ttf",
-            "Poppins-Bold.ttf", 
-            "ProximaNova-Regular.ttf",
-            "ProximaNova-Bold.ttf"
-        ]
-        
-        # Load fonts dengan fallback
-        for font_file in font_files:
-            if os.path.exists(font_file):
-                try:
-                    base_name = font_file.split('.')[0]
-                    self.fonts[base_name] = {
-                        'title': ImageFont.truetype(font_file, 54),
-                        'subtitle': ImageFont.truetype(font_file, 28),
-                        'content': ImageFont.truetype(font_file, 34)
-                    }
-                except Exception as e:
-                    print(f"Warning: Could not load {font_file}: {e}")
-        
-        # Fallback jika tidak ada fonts
-        if not self.fonts:
-            default_font = ImageFont.load_default()
-            self.fonts['default'] = {
-                'title': default_font,
-                'subtitle': default_font,
-                'content': default_font
-            }
+    # Hitung tinggi baris (lh)
+    try: 
+        lh_text = max(font.getbbox("A")[3] - font.getbbox("A")[1], font.getsize("A")[1])
+        lh = lh_text + ISILINE_PADDING 
+    except: 
+        lh = 30 + ISILINE_PADDING
     
-    def setup_templates(self):
-        """Setup templates - existing logic"""
-        self.templates = {
-            "default": {
-                "video_size": (720, 1280),
-                "bg_color": (0, 0, 0),
-                "text_color": (255, 255, 255),
-                "fps": 30
-            }
+    # 🔥 V61 FIX: Geser kotak highlight ke bawah 6 piksel
+    HIGHLIGHT_TOP_OFFSET = 3 + 6      # Posisi Y atas kotak
+    HIGHLIGHT_BOTTOM_OFFSET = lh - 2 + 6 # Posisi Y bawah kotak
+
+    swipe=int(FPS*HIGHLIGHT_SPEED)
+    for line in text.split("\n"):
+        parts=re.split(r"(\[\[.*?\]\])",line)
+        cx=margin_x
+        for p in parts:
+            if not p: continue
+            if p.startswith("[[") and p.endswith("]]"):
+                # Bagian yang di-highlight
+                w=p[2:-2].replace('|', ' ') # Kembalikan placeholder '|' menjadi ' '
+                
+                try: 
+                    dummy_img = Image.new("RGBA", (1, 1))
+                    draw = ImageDraw.Draw(dummy_img)
+                    bbox = draw.textbbox((0, 0), w, font=font)
+                    ww = bbox[2] - bbox[0]
+                except: ww=len(w)*20
+                
+                prog=min(1.0,frame_idx/float(swipe)); xs=cx+ww*(1-prog)
+                
+                # Render kotak highlight
+                dhl.rectangle([
+                    xs-4, 
+                    y + HIGHLIGHT_TOP_OFFSET, 
+                    cx+ww+4, 
+                    y + HIGHLIGHT_BOTTOM_OFFSET
+                ],fill=HIGHLIGHT_COLOR)
+                
+                dt.text((cx,y),w,font=font,fill=TEXT_COLOR); cx+=ww+4
+            else:
+                # Bagian teks biasa
+                p_clean = p.replace('|', ' ')
+                try: 
+                    dummy_img = Image.new("RGBA", (1, 1))
+                    draw = ImageDraw.Draw(dummy_img)
+                    bbox = draw.textbbox((0, 0), p_clean, font=font)
+                    width_text = bbox[2] - bbox[0]
+                    dt.text((cx,y),p_clean,font=font,fill=TEXT_COLOR); cx+=width_text
+                except: 
+                    dt.text((cx,y),p_clean,font=font,fill=TEXT_COLOR); cx+=len(p_clean)*20
+        y+=lh
+    return hl,tx
+
+def ease_out(t):  
+    return 1 - pow(1 - t, 3)
+
+def render_wipe_layer(layer, t):
+    if t <= 0: return Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
+    t_eased = ease_out(t)
+    width = int(VIDEO_SIZE[0] * t_eased)
+    mask = Image.new("L", VIDEO_SIZE, 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rectangle([0, 0, width, VIDEO_SIZE[1]], fill=255)
+    return Image.composite(layer, Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0)), mask)
+
+# ===============================
+#   STREAMING RENDER CLIPS
+# ===============================
+
+def make_clip_from_generator(frame_generator, duration):
+# ... (Fungsi ini tetap sama) ...
+    def make_frame(t):
+        i = int(t * FPS)
+        return frame_generator(i)
+    return VideoClip(make_frame, duration=duration)
+
+def render_opening(judul_txt, subjudul_txt, fonts, upper_txt=None):
+# ... (Fungsi ini tetap sama) ...
+    dur = durasi_judul(judul_txt, subjudul_txt)
+    total_frames = int(FPS * dur)
+    static_frames = int(FPS * 0.2)
+    fade_frames = int(FPS * 0.8)
+    margin_x = 70
+    margin_bawah_logo = 170
+    batas_bawah_aman = VIDEO_SIZE[1] - margin_bawah_logo
+
+    dummy_img = Image.new("RGBA", (1, 1))
+    draw = ImageDraw.Draw(dummy_img)
+    upper_font_size = 28
+    judul_font_size = 60
+    sub_font_size = 28
+    spacing_upper_judul = 12
+    spacing_judul_sub = 19
+
+    def calculate_layout(current_judul_font_size):
+        font_upper = ImageFont.truetype(fonts["upper"], upper_font_size) if upper_txt else None
+        font_judul = ImageFont.truetype(fonts["judul"], current_judul_font_size) if judul_txt else None
+        font_sub = ImageFont.truetype(fonts["subjudul"], sub_font_size) if subjudul_txt else None
+        if not font_judul:
+            font_judul = ImageFont.truetype(fonts["judul"], current_judul_font_size)
+
+        wrapped_upper = smart_wrap(upper_txt, font_upper, VIDEO_SIZE[0]) if font_upper and upper_txt else None
+        wrapped_judul = smart_wrap(judul_txt, font_judul, VIDEO_SIZE[0]) if font_judul and judul_txt else ""
+        wrapped_sub = smart_wrap(subjudul_txt, font_sub, VIDEO_SIZE[0]) if font_sub and subjudul_txt else None
+
+        upper_h = judul_h = sub_h = 0
+        if wrapped_upper:
+            # FIX: replace('|', ' ') untuk memastikan perhitungan layout yang akurat
+            upper_bbox = draw.multiline_textbbox((0, 0), wrapped_upper.replace('|', ' '), font=font_upper, spacing=4)
+            upper_h = upper_bbox[3] - upper_bbox[1]
+        if wrapped_judul:
+            judul_bbox = draw.multiline_textbbox((0, 0), wrapped_judul.replace('|', ' '), font=font_judul, spacing=4)
+            judul_h = judul_bbox[3] - judul_bbox[1]
+        if wrapped_sub:
+            sub_bbox = draw.multiline_textbbox((0, 0), wrapped_sub.replace('|', ' '), font=font_sub, spacing=4)
+            sub_h = sub_bbox[3] - sub_bbox[1]
+
+        y_start = int(VIDEO_SIZE[1] * 0.60)
+        current_y = y_start
+        y_upper = y_judul = y_sub = None
+        bottom_y = y_start
+
+        if wrapped_upper:
+            y_upper = current_y
+            upper_bbox = draw.multiline_textbbox((margin_x, y_upper), wrapped_upper.replace('|', ' '), font=font_upper, spacing=4)
+            current_y = upper_bbox[3] + spacing_upper_judul
+            bottom_y = upper_bbox[3]
+
+        y_judul = current_y
+        if wrapped_judul:
+            judul_bbox = draw.multiline_textbbox((margin_x, y_judul), wrapped_judul.replace('|', ' '), font=font_judul, spacing=4)
+            bottom_y = judul_bbox[3]
+            current_y = judul_bbox[3] + spacing_judul_sub
+
+        if wrapped_sub:
+            y_sub = current_y
+            sub_bbox = draw.multiline_textbbox((margin_x, y_sub), wrapped_sub.replace('|', ' '), font=font_sub, spacing=4)
+            bottom_y = sub_bbox[3]
+
+        return {
+            "font_upper": font_upper, "font_judul": font_judul, "font_sub": font_sub,
+            "wrapped_upper": wrapped_upper.replace('|', ' ') if wrapped_upper else None, # Ganti kembali placeholder
+            "wrapped_judul": wrapped_judul.replace('|', ' '), 
+            "wrapped_sub": wrapped_sub.replace('|', ' ') if wrapped_sub else None, # Ganti kembali placeholder
+            "y_upper": y_upper, "y_judul": y_judul, "y_sub": y_sub, "bottom_y": bottom_y
         }
-    
-    def _initialize_highlight_system(self):
-        """Initialize highlight processors untuk setiap font"""
-        for font_family, font_dict in self.fonts.items():
-            self.highlight_processors[font_family] = {}
-            for font_type, font in font_dict.items():
-                self.highlight_processors[font_family][font_type] = AdvancedHighlightProcessor(
-                    font=font,
-                    video_width=720,
-                    video_height=1280,
-                    bg_color=(0, 0, 0),
-                    text_color=(255, 255, 255)
-                )
 
+    layout = calculate_layout(judul_font_size)
+    if layout["bottom_y"] > batas_bawah_aman:
+        layout = calculate_layout(int(judul_font_size * 0.94))
 
-    def setup_gui(self):
-        """Setup GUI - enhanced version"""
-        if not self.root:
-            return
-            
-        # Title
-        title_label = tk.Label(self.root, text="Enhanced Video Generator", 
-                              font=("Arial", 16, "bold"))
-        title_label.pack(pady=10)
-        
-        # Highlight info
-        highlight_info = tk.Label(self.root, 
-                                 text="✨ Now with Advanced Highlights!\nUse [[text]] or [[style:text]]",
-                                 font=("Arial", 10), fg="blue")
-        highlight_info.pack(pady=5)
-        
-        # Input folder selection
-        input_frame = tk.Frame(self.root)
-        input_frame.pack(pady=10, padx=20, fill="x")
-        
-        tk.Label(input_frame, text="Input Folder:").pack(anchor="w")
-        input_path_frame = tk.Frame(input_frame)
-        input_path_frame.pack(fill="x", pady=5)
-        
-        tk.Entry(input_path_frame, textvariable=self.input_folder, width=50).pack(side="left", fill="x", expand=True)
-        tk.Button(input_path_frame, text="Browse", command=self.select_input_folder).pack(side="right", padx=(5,0))
-        
-        # Output folder selection
-        output_frame = tk.Frame(self.root)
-        output_frame.pack(pady=10, padx=20, fill="x")
-        
-        tk.Label(output_frame, text="Output Folder:").pack(anchor="w")
-        output_path_frame = tk.Frame(output_frame)
-        output_path_frame.pack(fill="x", pady=5)
-        
-        tk.Entry(output_path_frame, textvariable=self.output_folder, width=50).pack(side="left", fill="x", expand=True)
-        tk.Button(output_path_frame, text="Browse", command=self.select_output_folder).pack(side="right", padx=(5,0))
-        
-        # Template selection
-        template_frame = tk.Frame(self.root)
-        template_frame.pack(pady=10, padx=20, fill="x")
-        
-        tk.Label(template_frame, text="Template:").pack(anchor="w")
-        template_menu = tk.OptionMenu(template_frame, self.selected_template, *self.templates.keys())
-        template_menu.pack(anchor="w", pady=5)
-        
-        # Highlight styles info
-        styles_frame = tk.Frame(self.root)
-        styles_frame.pack(pady=10, padx=20, fill="x")
-        
-        tk.Label(styles_frame, text="Available Highlight Styles:", font=("Arial", 10, "bold")).pack(anchor="w")
-        styles_text = """• [[important:text]] - Red highlight for important info
-• [[success:text]] - Green highlight for positive news  
-• [[warning:text]] - Yellow highlight for warnings
-• [[fast:text]] - Quick animation
-• [[slow:text]] - Slow animation
-• [[text]] - Default blue highlight"""
-        
-        tk.Label(styles_frame, text=styles_text, font=("Arial", 9), 
-                justify="left", fg="gray").pack(anchor="w", pady=5)
-        
-        # Process button
-        self.process_button = tk.Button(self.root, text="🎬 Generate Videos with Highlights", 
-                                       command=self.start_processing, 
-                                       font=("Arial", 12, "bold"),
-                                       bg="#4CAF50", fg="white", 
-                                       state="normal")
-        self.process_button.pack(pady=20)
-        
-        # Progress area
-        self.progress_text = tk.Text(self.root, height=10, width=60)
-        self.progress_text.pack(pady=10, padx=20, fill="both", expand=True)
-        
-        # Scrollbar untuk progress text
-        scrollbar = tk.Scrollbar(self.progress_text)
-        scrollbar.pack(side="right", fill="y")
-        self.progress_text.config(yscrollcommand=scrollbar.set)
-        scrollbar.config(command=self.progress_text.yview)
-    
-    def select_input_folder(self):
-        folder = filedialog.askdirectory()
-        if folder:
-            self.input_folder.set(folder)
-    
-    def select_output_folder(self):
-        folder = filedialog.askdirectory()
-        if folder:
-            self.output_folder.set(folder)
-    
-    def log_progress(self, message):
-        """Log progress to GUI"""
-        if self.root and hasattr(self, 'progress_text'):
-            self.progress_text.insert(tk.END, f"{message}\n")
-            self.progress_text.see(tk.END)
-            self.root.update()
+    # 🔧 Tambahan patch: jika masih terlalu rendah, geser ke atas
+    if layout["bottom_y"] > batas_bawah_aman:
+        kelebihan = layout["bottom_y"] - batas_bawah_aman
+        offset = min(kelebihan + 20, 150)
+        for key in ["y_upper", "y_judul", "y_sub"]:
+            if layout[key] is not None:
+                layout[key] -= offset
+
+    def frame_generator(i):
+        if i < static_frames:
+            t = 1.0
+            anim = False
+        elif i < static_frames + fade_frames:
+            t = (i - static_frames) / float(fade_frames)
+            anim = True
         else:
-            print(message)
-    
-    def has_highlights(self, text: str) -> bool:
-        """Check if text contains highlight markers"""
-        return "[[" in text and "]]" in text
-    
-    def calculate_smart_duration(self, text: str) -> float:
-        """Calculate duration berdasarkan reading speed"""
-        # Remove highlight markers
-        clean_text = re.sub(r'\[\[.*?\]\]', lambda m: m.group(0)[2:-2], text)
-        word_count = len(clean_text.split())
-        
-        # Reading speed: 160 WPM
-        base_duration = (word_count / 160) * 60
-        duration = base_duration + 1.5  # Buffer
-        
-        return max(3.0, min(10.0, duration))
+            t = 1.0
+            anim = False
 
+        frame = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
+        layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
+        if layout["wrapped_upper"] and layout["y_upper"] is not None:
+            make_text_frame(layer, layout["wrapped_upper"], layout["font_upper"], (margin_x, layout["y_upper"]))
+        if layout["wrapped_judul"] and layout["y_judul"] is not None:
+            make_text_frame(layer, layout["wrapped_judul"], layout["font_judul"], (margin_x, layout["y_judul"]))
+        if layout["wrapped_sub"] and layout["y_sub"] is not None:
+            make_text_frame(layer, layout["wrapped_sub"], layout["font_sub"], (margin_x, layout["y_sub"]))
+        visible = render_wipe_layer(layer, t) if anim else layer
+        return np.array(Image.alpha_composite(frame, visible).convert("RGB"))
 
-    def create_highlighted_clip(self, text: str, duration: float, y_position: int = 400) -> ImageClip:
-        """Create clip dengan advanced highlighting"""
-        
-        # Get appropriate font and processor
-        font_family = list(self.fonts.keys())[0]  # Use first available font
-        processor = self.highlight_processors[font_family]['content']
-        
-        # Generate frames dengan highlights
-        frames = processor.render_text_with_highlights(
-            text=text,
-            duration=duration,
-            y_position=y_position,
-            fps=30
-        )
-        
-        # Convert frames ke ImageClip
-        clips = []
-        for frame in frames:
-            clip = ImageClip(frame, duration=1.0/30)
-            clips.append(clip)
-        
-        return concatenate_videoclips(clips, method="compose")
-    
-    def create_basic_clip(self, text: str, duration: float, y_position: int = 400) -> ImageClip:
-        """Create basic clip tanpa highlights - fallback method"""
-        
-        # Simple implementation untuk compatibility
-        template = self.templates[self.selected_template.get()]
-        video_size = template["video_size"]
-        bg_color = template["bg_color"]
-        text_color = template["text_color"]
-        
-        # Create simple frame
-        frame = Image.new("RGB", video_size, bg_color)
-        draw = ImageDraw.Draw(frame)
-        
-        # Get font
-        font_family = list(self.fonts.keys())[0]
-        font = self.fonts[font_family]['content']
-        
-        # Draw text (simple implementation)
-        try:
-            draw.text((70, y_position), text, font=font, fill=text_color)
-        except:
-            draw.text((70, y_position), text, fill=text_color)
-        
-        return ImageClip(np.array(frame), duration=duration)
-    
-    def process_text_file(self, file_path: str) -> bool:
-        """Process single text file dengan highlight support"""
-        try:
-            self.log_progress(f"📝 Processing: {os.path.basename(file_path)}")
-            
-            # Read file
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-            
-            if not content:
-                self.log_progress(f"⚠️ Empty file: {file_path}")
-                return False
-            
-            # Split into segments
-            segments = self.split_content(content)
-            self.log_progress(f"   Found {len(segments)} segments")
-            
-            # Generate clips
-            all_clips = []
-            
-            for i, segment in enumerate(segments, 1):
-                self.log_progress(f"   Processing segment {i}/{len(segments)}")
-                
-                # Calculate duration
-                duration = self.calculate_smart_duration(segment)
-                
-                # Create clip dengan atau tanpa highlights
-                if self.has_highlights(segment):
-                    self.log_progress(f"   ✨ Using advanced highlights")
-                    clip = self.create_highlighted_clip(segment, duration, 400)
-                else:
-                    self.log_progress(f"   📝 Using basic rendering")
-                    clip = self.create_basic_clip(segment, duration, 400)
-                
-                all_clips.append(clip)
-                
-                # Add separator except last segment
-                if i < len(segments):
-                    black_frame = np.zeros((1280, 720, 3), dtype=np.uint8)
-                    separator = ImageClip(black_frame, duration=0.5)
-                    all_clips.append(separator)
-            
-            # Combine clips
-            self.log_progress("   🎬 Combining clips...")
-            final_video = concatenate_videoclips(all_clips, method="compose")
-            
-            # Generate output filename
-            base_name = os.path.splitext(os.path.basename(file_path))[0]
-            output_file = os.path.join(self.output_folder.get() if hasattr(self, 'output_folder') else '.', f"{base_name}_enhanced.mp4")
-            
-            # Write video
-            self.log_progress("   🎥 Encoding video...")
-            final_video.write_videofile(
-                output_file,
-                fps=30,
-                codec='libx264',
-                audio=False,
-                verbose=False,
-                logger=None
-            )
-            
-            self.log_progress(f"✅ Success: {base_name}_enhanced.mp4")
-            return True
-            
-        except Exception as e:
-            self.log_progress(f"❌ Error processing {file_path}: {str(e)}")
-            return False
-    
-    def split_content(self, content: str) -> List[str]:
-        """Split content into segments"""
-        # Split by double newlines first
-        segments = [s.strip() for s in content.split('\n\n') if s.strip()]
-        
-        # If only one segment and it's long, split by sentences
-        if len(segments) == 1 and len(content) > 300:
-            sentences = content.split('. ')
-            segments = []
-            current_segment = ""
-            
-            for sentence in sentences:
-                if not sentence.strip():
-                    continue
-                    
-                test_segment = current_segment + ". " + sentence if current_segment else sentence
-                
-                if len(test_segment) > 200 and current_segment:
-                    segments.append(current_segment.strip())
-                    current_segment = sentence
-                else:
-                    current_segment = test_segment
-            
-            if current_segment.strip():
-                segments.append(current_segment.strip())
-        
-        return segments
+    return make_clip_from_generator(frame_generator, dur)
 
+def render_text_block(text, font_path, font_size, dur, anim=True):
+    total_frames = int(FPS * dur)
+    fade_frames = min(18, total_frames)
+    margin_x = 70
+    base_y = int(VIDEO_SIZE[1] * 0.60)
+    margin_bawah_logo = 170
+    batas_bawah_aman = VIDEO_SIZE[1] - margin_bawah_logo
 
-    def start_processing(self):
-        """Start processing in separate thread"""
-        if not self.root:
-            return
-            
-        if self.processing:
-            return
-        
-        if not self.input_folder.get() or not self.output_folder.get():
-            messagebox.showerror("Error", "Please select input and output folders")
-            return
-        
-        self.processing = True
-        self.process_button.config(state="disabled", text="Processing...")
-        self.progress_text.delete(1.0, tk.END)
-        
-        # Start processing thread
-        thread = threading.Thread(target=self.process_files)
-        thread.daemon = True
-        thread.start()
+    dummy_img = Image.new("RGBA", (1, 1))
+    draw = ImageDraw.Draw(dummy_img)
+    font = ImageFont.truetype(font_path, font_size)
+    wrapped = smart_wrap(text, font, VIDEO_SIZE[0])
     
-    def process_files(self):
-        """Process all files in input folder"""
-        try:
-            input_dir = self.input_folder.get() if hasattr(self, 'input_folder') else '.'
-            output_dir = self.output_folder.get() if hasattr(self, 'output_folder') else '.'
-            
-            # Create output directory
-            os.makedirs(output_dir, exist_ok=True)
-            
-            # Find text files
-            text_files = []
-            for file in os.listdir(input_dir):
-                if file.endswith('.txt'):
-                    text_files.append(os.path.join(input_dir, file))
-            
-            if not text_files:
-                self.log_progress("❌ No .txt files found in input folder")
-                return
-            
-            self.log_progress(f"🎬 Found {len(text_files)} text files")
-            self.log_progress("🚀 Starting processing with advanced highlights...")
-            
-            successful = 0
-            for i, file_path in enumerate(text_files, 1):
-                self.log_progress(f"\n📹 {i}/{len(text_files)}: Processing...")
-                
-                if self.process_text_file(file_path):
-                    successful += 1
-                
-                # Update progress
-                progress = (i / len(text_files)) * 100
-                self.log_progress(f"Progress: {progress:.1f}% ({i}/{len(text_files)})")
-            
-            self.log_progress(f"\n🎉 Processing completed!")
-            self.log_progress(f"✅ Successfully generated {successful}/{len(text_files)} videos")
-            self.log_progress(f"📁 Output saved to: {output_dir}")
-            
-        except Exception as e:
-            self.log_progress(f"❌ Processing error: {str(e)}")
-        
-        finally:
-            if self.root:
-                self.processing = False
-                self.process_button.config(state="normal", text="🎬 Generate Videos with Highlights")
-    
-    def run(self):
-        """Run the application"""
-        if self.root:
-            self.root.mainloop()
-        else:
-            print("🤖 GUI not available in this environment")
+    # 🔥 Modifikasi 3/3: Menggunakan ISILINE_PADDING-2 dan .replace('|', ' ')
+    text_bbox = draw.multiline_textbbox((0, 0), wrapped.replace('|', ' '), font=font, spacing=ISILINE_PADDING-2)
+    text_height = text_bbox[3] - text_bbox[1]
+    bottom_y = base_y + text_height
+    if bottom_y > batas_bawah_aman:
+        font_size_new = max(30, int(font_size * 0.94))
+        font = ImageFont.truetype(font_path, font_size_new)
+        wrapped = smart_wrap(text, font, VIDEO_SIZE[0])
+        # FIX: Menggunakan ISILINE_PADDING-2 dan .replace('|', ' ')
+        text_bbox = draw.multiline_textbbox((0, 0), wrapped.replace('|', ' '), font=font, spacing=ISILINE_PADDING-2)
+        text_height = text_bbox[3] - text_bbox[1]
+        bottom_y = base_y + text_height
+    y_pos = base_y if bottom_y <= batas_bawah_aman else base_y - min(bottom_y - batas_bawah_aman + 10, 220)
 
-def main():
-    """Main function"""
-    print("🎬 Enhanced Video Generator with Advanced Highlights")
-    print("=" * 50)
-    print("Features:")
-    print("✨ Multi-line progressive highlighting")
-    print("🎨 Custom highlight styles (important, success, warning)")
-    print("⚡ Smooth character-by-character animation")
-    print("🇮🇩 Indonesian text optimization")
-    print("📁 Flat file structure support")
-    print("🔄 Backward compatibility maintained")
-    print("=" * 50)
-    
-    # Check if running in headless environment
-    import os
-    if os.environ.get('GITHUB_ACTIONS') or os.environ.get('CI'):
-        print("🤖 GitHub Actions/CI environment detected")
-        run_headless_test()
-        return
-    
-    # Try to initialize GUI
+    def frame_generator(i):
+        t = 1.0 if not anim else min(1.0, i / float(fade_frames))
+        frame = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
+        
+        # 🔥 GANTI LOGIKA LAMA: Menggunakan fungsi highlight baru
+        hl, txt = make_text_and_highlight_frame(font, wrapped, (margin_x, y_pos), i, total_frames)
+        vis = render_wipe_layer(txt, t)
+        
+        # Gabungkan semua layer: background, highlight, dan teks yang di-wipe
+        comb = Image.alpha_composite(frame, hl)
+        comb = Image.alpha_composite(comb, vis)
+        
+        return np.array(comb.convert("RGB"))
+
+    return make_clip_from_generator(frame_generator, dur)
+
+def render_penutup(dur=3.0):
+# ... (Fungsi ini tetap sama) ...
+    def frame_generator(i):
+        return np.array(Image.new("RGB", VIDEO_SIZE, BG_COLOR))
+    return make_clip_from_generator(frame_generator, dur)
+
+# ===============================
+#   OVERLAY, INPUT, OUTPUT
+# ===============================
+
+def add_overlay(base_clip):
+# ... (Fungsi ini tetap sama) ...
+    if not os.path.exists(OVERLAY_FILE): return base_clip
     try:
-        app = VideoGenerator()
-        if app.root:
-            app.run()
-        else:
-            print("✅ Enhanced script loaded successfully!")
-            print("💡 GUI will work when run locally with display support")
+        overlay_pil = Image.open(OVERLAY_FILE).convert("RGBA")
     except Exception as e:
-        if "display" in str(e).lower() or "tkinter" in str(e).lower():
-            print("🤖 GUI not available in this environment")
-            print("✅ Enhanced script loaded successfully!")
-            print("💡 GUI will work when run locally with display support")
-            run_headless_test()
-        else:
-            print(f"❌ Error: {e}")
-            raise
+        print(f"❌ Error loading overlay '{OVERLAY_FILE}': {e}")
+        return base_clip
+    overlay_pil_resized = overlay_pil.resize(VIDEO_SIZE, Image.LANCZOS)
+    overlay_clip = ImageClip(np.array(overlay_pil_resized), duration=base_clip.duration)
+    return CompositeVideoClip([base_clip, overlay_clip.set_pos((0, 0))], size=VIDEO_SIZE)
+
+def baca_semua_berita(file_path):
+# ... (Fungsi ini tetap sama) ...
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except FileNotFoundError:
+        print(f"❌ File '{file_path}' tidak ditemukan!")
+        exit(1)
+    except Exception as e:
+        print(f"❌ Error reading file '{file_path}': {e}")
+        exit(1)
+
+    blok_berita = content.strip().split("---")
+    semua_data = []
+    known_keys = ["upper:", "judul:", "subjudul:"]
+
+    for blok in blok_berita:
+        lines = blok.strip().splitlines()
+        data = {}
+        isi_raw_start_index = -1
+        i = 0
+        last_processed_header_line = -1
+
+        while i < len(lines):
+            line = lines[i].strip()
+            lower_line = line.lower() if line else ""
+            is_potential_isi = line and last_processed_header_line != -1 and not any(lower_line.startswith(k) for k in known_keys)
+            is_potential_isi_only = line and last_processed_header_line == -1 and not any(lower_line.startswith(k) for k in known_keys)
+            if is_potential_isi or is_potential_isi_only:
+                isi_raw_start_index = i
+                break
+            current_key = None
+            if lower_line.startswith("upper:"):
+                current_key = "Upper"
+                value_part = line.split(":", 1)[1].strip()
+            elif lower_line.startswith("judul:"):
+                current_key = "Judul"
+                value_part = line.split(":", 1)[1].strip()
+            elif lower_line.startswith("subjudul:"):
+                current_key = "Subjudul"
+                value_part = line.split(":", 1)[1].strip()
+            else:
+                i += 1
+                continue
+
+            key_lines = [value_part] if value_part else []
+            i += 1
+            while i < len(lines):
+                next_line = lines[i].strip()
+                if any(next_line.lower().startswith(k) for k in known_keys): break
+                if not next_line and key_lines:
+                    isi_raw_start_index = i
+                    break
+                if next_line: key_lines.append(next_line)
+                i += 1
+
+            data[current_key] = "\n".join(key_lines)
+            last_processed_header_line = i - 1
+
+        if isi_raw_start_index != -1:
+            isi_raw = lines[isi_raw_start_index:]
+            isi_text = "\n".join(isi_raw).strip()
+            paragraf_list = [p.strip() for p in isi_text.split("\n\n") if p.strip()]
+            for idx, p in enumerate(paragraf_list, start=1):
+                data[f"Isi_{idx}"] = p
+        if data:
+            semua_data.append(data)
+    return semua_data
+
+def buat_video(data, index=None):
+# ... (Fungsi ini tetap sama) ...
+    judul = data.get("Judul", "")
+    print(f"▶ Membuat video: {judul}")
+    try:
+        opening = render_opening(
+            judul, data.get("Subjudul", None), FONTS,
+            upper_txt=data.get("Upper", None)
+        )
+        isi_clips = []
+        isi_data = [f"Isi_{i}" for i in range(1, 30) if f"Isi_{i}" in data and data[f"Isi_{i}"].strip()]
+        jeda = render_penutup(0.7)
+        for idx, key in enumerate(isi_data):
+            teks = data[key]
+            dur = durasi_otomatis(teks)
+            clip = render_text_block(teks, FONTS["isi"], 34, dur)
+            isi_clips.append(clip)
+            if idx < len(isi_data) - 1:
+                isi_clips.append(jeda)
+        penutup = render_penutup(4.0)
+        final = concatenate_videoclips([opening] + isi_clips + [penutup], method="compose")
+        result = add_overlay(final)
+        filename = f"output_video_{index+1 if index is not None else '1'}.mp4"
+        result.write_videofile(filename, fps=FPS, codec="libx264", audio=False, logger=None, threads=4)
+        print(f"✅ Video selesai: {filename}\n")
+    except Exception as e:
+        print(f"❌ Gagal membuat video untuk '{judul}': {e}")
+
+# ===============================
+#   MAIN PROGRAM
+# ===============================
 
 if __name__ == "__main__":
-    main()
+# ... (Fungsi ini tetap sama) ...
+    FILE_INPUT = "data_berita.txt"
+    font_files_ok = True
+    for key, font_file in FONTS.items():
+        if not os.path.exists(font_file):
+            print(f"❌ File Font '{font_file}' untuk '{key}' tidak ditemukan!")
+            font_files_ok = False
+    if not font_files_ok:
+        exit(1)
+
+    semua = baca_semua_berita(FILE_INPUT)
+    if not semua:
+        print(f"❌ Tidak ada data berita yang valid di '{FILE_INPUT}'.")
+        exit(1)
+
+    print(f"Total {len(semua)} video akan dibuat...")
+    for i, data in enumerate(semua):
+        buat_video(data, i)
+    print("🎬 Semua video selesai dibuat (atau dilewati jika gagal).")
