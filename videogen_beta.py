@@ -1,7 +1,7 @@
 # ==========================================================
-# ✅ VIDEO GENERATOR FINAL V7
-# Animasi sapuan blok penuh kiri→kanan (judul, subjudul, isi)
-# Highlight ikut tersapu bersamaan (bukan per huruf/kata)
+# ✅ VIDEO GENERATOR FINAL V8
+# Global sweep untuk ISI (satu kesatuan), block biru solid 100%
+# Judul/Subjudul wipe halus kiri→kanan
 # ==========================================================
 from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips, VideoClip
 from PIL import Image, ImageDraw, ImageFont
@@ -12,7 +12,7 @@ import os, re, sys
 VIDEO_SIZE = (720, 1280)   # (W, H)
 BG_COLOR = (0, 0, 0)
 TEXT_COLOR = (255, 255, 255, 255)
-HIGHLIGHT_COLOR = (0, 124, 188, 255)
+HIGHLIGHT_COLOR = (0, 124, 188, 255)  # solid 100%
 FPS = 60
 OVERLAY_FILE = "semangat.png"
 
@@ -23,6 +23,12 @@ FONTS = {
     "isi": "Poppins-Bold.ttf",
 }
 
+# Durasi (detik)
+DUR_JUDUL = 2.6
+DUR_SUBJUDUL = 2.0
+# Sweep cepat untuk ISI — blok global
+DUR_ISI_SWEEP = 1.0  # 1 detik sapu cepat; sisanya hold
+
 # ---------- UTIL ----------
 def load_font_safe(path, size):
     try:
@@ -32,7 +38,7 @@ def load_font_safe(path, size):
         return ImageFont.load_default()
 
 def ease_sweep(t: float):
-    # Easing halus mirip “mask reveal” (lambat-awal/akhir, cepat-tengah)
+    # Easing lembut (mask reveal): lambat awal/akhir, cepat tengah
     t = max(0.0, min(1.0, t))
     return 1 - pow(1 - pow(t, 1.5), 3)
 
@@ -58,11 +64,9 @@ class StableTextProcessor:
         try:
             return self.font.getlength(text)
         except Exception:
-            # fallback kira-kira
             return len(text) * 15
 
     def parse_text_with_highlights(self, text):
-        # Pisah blok [[...]] (ber-highlight) dengan teks biasa
         parts = re.split(r'(\[\[.*?\]\])', text)
         segs = []
         for p in parts:
@@ -91,107 +95,139 @@ class StableTextProcessor:
             lines.append(cur)
         return lines
 
-    # ------------------------------------------------------
-    # RENDER: sapuan blok penuh (mask horizontal per baris)
-    # ------------------------------------------------------
-    def render_lines_wipe(self, lines, base_y, progress):
-        # progress: 0..1
+    # ------------- RENDER: WIPE PER BARIS (JUDUL/SUBJUDUL) -------------
+    def render_lines_wipe_per_line(self, lines, base_y, progress):
         base = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
-        hl_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
         txt_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
-        hld = ImageDraw.Draw(hl_layer)
         td = ImageDraw.Draw(txt_layer)
 
         y = base_y
-        # Hitung lebar maksimum baris (untuk sapuan terasa konsisten)
-        total_w_per_line = []
+        # Hitung total lebar baris untuk sapuan
+        line_widths = []
         for line in lines:
-            line_w = sum(self._get_text_width(w['word'] + " ") for w in line)
-            total_w_per_line.append(int(line_w))
+            wsum = sum(int(self._get_text_width(w['word'] + " ")) for w in line)
+            line_widths.append(wsum)
 
-        # Sapuan tiap baris: pakai easing, lalu diaplikasikan ke lebar baris
         for idx, line in enumerate(lines):
-            line_total_w = total_w_per_line[idx]
+            line_total_w = line_widths[idx]
             sweep = int(line_total_w * ease_sweep(progress))
+            # Gambar teks penuh pada layer baris, lalu mask area sweep
+            line_img = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
+            ltd = ImageDraw.Draw(line_img)
 
-            # Layer per-baris agar mudah di-mask
-            line_txt = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
-            ltd = ImageDraw.Draw(line_txt)
-            x_cursor = self.margin_x
-
-            # 1) Gambar highlight di bawah kata yang is_highlight, TAPI clamp sampai sweep
-            #    — highlight dan teks akan muncul bersama (bukan per huruf)
-            #    — rectangle dibatasi oleh sweep untuk hasil "tirai dibuka"
-            x = self.margin_x
-            for w in line:
-                w_width = int(self._get_text_width(w['word'] + " "))
-                seg_left = x
-                seg_right = x + w_width
-                sweep_right = self.margin_x + sweep
-
-                if w['is_highlight']:
-                    # batas highlight = bagian yang sudah tersapu
-                    hl_left = max(seg_left - 4, self.margin_x - 4)
-                    hl_right = min(seg_right, sweep_right)
-                    if hl_right > hl_left:
-                        # subpixel-ish: 3 layer tipis untuk soft edge (anti patah)
-                        for i in range(3):
-                            offset = i * 0.4
-                            alpha = int(255 * (1 - 0.35 * i))
-                            hld.rectangle([hl_left + offset,
-                                           y + 4,
-                                           hl_right + offset,
-                                           y + self.line_height + 4],
-                                          fill=(HIGHLIGHT_COLOR[0], HIGHLIGHT_COLOR[1],
-                                                HIGHLIGHT_COLOR[2], alpha))
-                x = seg_right
-
-            # 2) Gambar teks penuh pada layer baris, lalu MASK-kan dengan sapuan (rect mask)
             x = self.margin_x
             for w in line:
                 ltd.text((x, y), w['word'] + " ", font=self.font, fill=TEXT_COLOR)
                 x += int(self._get_text_width(w['word'] + " "))
 
-            # Buat mask rectangle untuk sapuan baris ini
-            # Hanya area sampai sweep yang terlihat
+            # Mask batas sweep
             if sweep > 0:
                 mask = Image.new("L", VIDEO_SIZE, 0)
                 mdraw = ImageDraw.Draw(mask)
                 mdraw.rectangle([self.margin_x - 2, y - 2,
                                  self.margin_x + sweep + 2, y + self.line_height + 10], fill=255)
-                # Tempel line_txt ke txt_layer sesuai mask
-                txt_layer = Image.composite(line_txt, txt_layer, mask)
+                txt_layer = Image.composite(line_img, txt_layer, mask)
 
             y += self.line_height
 
-        # Komposit akhir
-        frame = Image.alpha_composite(Image.alpha_composite(base, hl_layer), txt_layer).convert("RGB")
+        frame = Image.alpha_composite(base, txt_layer).convert("RGB")
+        return np.array(frame)
+
+    # ------------- RENDER: GLOBAL SWEEP + BLOCK BIRU SOLID (ISI) -------------
+    def render_lines_wipe_global_block(self, lines, base_y, progress):
+        """
+        Satu sapuan global untuk seluruh blok ISI:
+        - gambar block biru solid 100% yang mengikuti sweep (global width)
+        - lalu teks di atasnya, dibatasi oleh mask sweep yang sama
+        """
+        base = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
+        txt_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
+        td = ImageDraw.Draw(txt_layer)
+
+        # Hitung bounding box seluruh teks (global) untuk ukuran sweep
+        min_x = self.margin_x
+        max_x = self.margin_x
+        y = base_y
+        for line in lines:
+            line_w = sum(int(self._get_text_width(w['word'] + " ")) for w in line)
+            max_x = max(max_x, self.margin_x + line_w)
+            y += self.line_height
+        min_y = base_y
+        max_y = y
+
+        total_w = max_x - min_x
+        sweep = int(total_w * ease_sweep(progress))
+
+        # 1) Gambar BLOCK BIRU SOLID (100%) sesuai sweep (global)
+        if sweep > 0:
+            block = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
+            bd = ImageDraw.Draw(block)
+            bd.rectangle([min_x - 4, min_y - 4,
+                          min_x + sweep, max_y + 4],
+                         fill=HIGHLIGHT_COLOR)  # solid RGBA
+            base = Image.alpha_composite(base, block)
+
+        # 2) Gambar teks penuh pada layer, lalu batasi dengan mask sweep global
+        y = base_y
+        for line in lines:
+            x = self.margin_x
+            for w in line:
+                td.text((x, y), w['word'] + " ", font=self.font, fill=TEXT_COLOR)
+                x += int(self._get_text_width(w['word'] + " "))
+            y += self.line_height
+
+        if sweep > 0:
+            mask = Image.new("L", VIDEO_SIZE, 0)
+            mdraw = ImageDraw.Draw(mask)
+            mdraw.rectangle([min_x - 2, min_y - 6,
+                             min_x + sweep + 2, max_y + 6], fill=255)
+            txt_layer = Image.composite(txt_layer, Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0)), mask)
+
+        frame = Image.alpha_composite(base, txt_layer).convert("RGB")
         return np.array(frame)
 
 # ==========================================================
 # LAYOUT + VIDEO GENERATORS
 # ==========================================================
-def calculate_adaptive_layout(text, font_path, size, margin_x, base_y_ratio=0.60):
+def calculate_adaptive_layout(text, font_path, size, margin_x, base_y_ratio):
     font = load_font_safe(font_path, size)
     proc = StableTextProcessor(font, VIDEO_SIZE[0], margin_x)
     lines = proc.smart_wrap_with_highlights(text)
     base_y = int(VIDEO_SIZE[1] * base_y_ratio)
     total_h = len(lines) * proc.line_height
-    # Hindari jatuh melewati bawah
     batas_bawah = VIDEO_SIZE[1] - 160
     if base_y + total_h > batas_bawah:
         base_y = max(80, base_y - (base_y + total_h - batas_bawah))
     return {'lines': lines, 'processor': proc, 'base_y': base_y}
 
-def render_block_wipe(text, font_path, size, dur, base_y_ratio):
-    layout = calculate_adaptive_layout(text, font_path, size, margin_x=70, base_y_ratio=base_y_ratio)
-    proc, lines, base_y = layout['processor'], layout['lines'], layout['base_y']
-
+def render_block_wipe_title(text, font_path, size, dur, base_y_ratio):
+    lay = calculate_adaptive_layout(text, font_path, size, 70, base_y_ratio)
+    proc, lines, base_y = lay['processor'], lay['lines'], lay['base_y']
     def make_frame(t):
         p = ease_sweep(min(1.0, t / dur))
-        return proc.render_lines_wipe(lines, base_y, p)
-
+        return proc.render_lines_wipe_per_line(lines, base_y, p)
     return VideoClip(make_frame, duration=dur).set_fps(FPS)
+
+def render_block_wipe_isi_global(text, font_path, size, dur_sweep, base_y_ratio):
+    """
+    ISI: sapuan cepat (dur_sweep), lalu hold hingga akhir durasi (auto).
+    Durasi total dihitung dari panjang teks (hold).
+    """
+    # Hitung durasi total isi (hold setelah sweep)
+    words = len(re.sub(r'\[\[.*?\]\]', lambda m: m.group(0)[2:-2], text).split())
+    dur_total = max(dur_sweep + 1.5, min(14.0, words / 16.0))  # sweep cepat + baca nyaman
+
+    lay = calculate_adaptive_layout(text, font_path, size, 70, base_y_ratio)
+    proc, lines, base_y = lay['processor'], lay['lines'], lay['base_y']
+
+    def make_frame(t):
+        if t <= dur_sweep:
+            p = ease_sweep(t / dur_sweep)
+        else:
+            p = 1.0  # sudah tersapu penuh → block biru penuh + teks penuh
+        return proc.render_lines_wipe_global_block(lines, base_y, p)
+
+    return VideoClip(make_frame, duration=dur_total).set_fps(FPS)
 
 # ==========================================================
 # PARSER MULTI-BARIS (Judul/Subjudul/Isi)
@@ -240,7 +276,7 @@ def baca_semua_berita_stable(filename):
                 buf = [content] if content else []
                 continue
 
-            # lanjutan baris sebelumnya (judul/subjudul/isi)
+            # lanjutan baris sebelumnya
             buf.append(line)
 
         commit()
@@ -252,15 +288,6 @@ def baca_semua_berita_stable(filename):
         return []
 
 # ==========================================================
-# DURASI
-# ==========================================================
-def hitung_durasi_isi(text):
-    clean = re.sub(r'\[\[.*?\]\]', lambda m: m.group(0)[2:-2], text)
-    w = len(clean.split())
-    # lebih santai agar sapuan terasa halus
-    return round(max(3.0, min(12.0, w / 18.0)), 2)
-
-# ==========================================================
 # BUILD VIDEO
 # ==========================================================
 def buat_video_stable(data):
@@ -270,26 +297,21 @@ def buat_video_stable(data):
     subjudul = data.get('Subjudul', '').strip()
 
     if judul:
-        clips.append(render_block_wipe(judul, FONTS['judul'], 54, dur=3.0, base_y_ratio=0.35))
+        clips.append(render_block_wipe_title(judul, FONTS['judul'], 54, DUR_JUDUL, base_y_ratio=0.34))
     if subjudul:
-        clips.append(render_block_wipe(subjudul, FONTS['subjudul'], 36, dur=2.2, base_y_ratio=0.44))
+        clips.append(render_block_wipe_title(subjudul, FONTS['subjudul'], 36, DUR_SUBJUDUL, base_y_ratio=0.42))
 
     isi_keys = sorted([k for k in data if k.startswith('Isi_')])
     for k in isi_keys:
         txt = data[k].strip()
         if not txt:
             continue
-        dur = hitung_durasi_isi(txt)
-        clips.append(render_block_wipe(txt, FONTS['isi'], 34, dur=dur, base_y_ratio=0.60))
+        # ISI: sapuan global cepat (block biru solid 100% + teks)
+        clips.append(render_block_wipe_isi_global(txt, FONTS['isi'], 34, DUR_ISI_SWEEP, base_y_ratio=0.60))
 
-    if not clips:
-        # fallback kosong
-        empty = ImageClip(np.zeros((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), np.uint8), duration=2)
-        final = empty
-    else:
-        final = concatenate_videoclips(clips, method="compose")
+    final = concatenate_videoclips(clips, method="compose") if clips else ImageClip(
+        np.zeros((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), np.uint8), duration=2)
 
-    # overlay opsional
     if os.path.exists(OVERLAY_FILE):
         try:
             overlay = ImageClip(
