@@ -83,67 +83,64 @@ class StableTextProcessor:
                 cur_w = wlen
         if cur_line: lines.append(cur_line)
         return lines
-
-
+        
     def render_lines_with_continuous_highlight(self, lines, base_y, frame_idx, total_frames):
-    base = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
-    hl_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
-    txt_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
-    hld = ImageDraw.Draw(hl_layer)
-    td = ImageDraw.Draw(txt_layer)
+        base = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
+        hl_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
+        txt_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
+        hld = ImageDraw.Draw(hl_layer)
+        td = ImageDraw.Draw(txt_layer)
 
-    progress = min(1.0, frame_idx / max(1, total_frames * 0.25))
-    all_segments = []
-    total_chars = 0
-    y = base_y
-    for line in lines:
-        x = self.margin_x
-        for w in line:
-            if w['is_highlight']:
-                width = self._get_text_width(w['word'] + " ")
-                all_segments.append({
-                    'x': x,
-                    'y': y,
-                    'width': width,
-                    'word': w['word'],
-                    'start': total_chars,
-                    'end': total_chars + len(w['word'])
-                })
-                total_chars += len(w['word']) + 1
-            x += self._get_text_width(w['word'] + " ")
-        y += self.line_height
+        progress = min(1.0, frame_idx / max(1, total_frames * 0.25))
+        all_segments = []
+        total_chars = 0
+        y = base_y
+        for line in lines:
+            x = self.margin_x
+            for w in line:
+                if w['is_highlight']:
+                    width = self._get_text_width(w['word'] + " ")
+                    all_segments.append({
+                        'x': x,
+                        'y': y,
+                        'width': width,
+                        'word': w['word'],
+                        'start': total_chars,
+                        'end': total_chars + len(w['word'])
+                    })
+                    total_chars += len(w['word']) + 1
+                x += self._get_text_width(w['word'] + " ")
+            y += self.line_height
 
-    cur_chars = int(progress * total_chars)
-    for seg in all_segments:
-        if seg['start'] <= cur_chars:
-            chars = max(0, cur_chars - seg['start'])
-            L = len(seg['word'])
-            p = 1 - pow(1 - (chars / L if L else 1), 2)
-            w = seg['width'] * min(1, p)
-            # ✅ perbaikan aman dari ValueError
-            if w > 0:
-                x0 = seg['x'] - 4
-                x1 = seg['x'] + w
-                if x1 > x0:
-                    hld.rectangle([x0, seg['y'] + 4,
-                                   x1, seg['y'] + self.line_height + 4],
-                                  fill=HIGHLIGHT_COLOR)
+        cur_chars = int(progress * total_chars)
+        for seg in all_segments:
+            if seg['start'] <= cur_chars:
+                chars = max(0, cur_chars - seg['start'])
+                L = len(seg['word'])
+                p = 1 - pow(1 - (chars / L if L else 1), 2)
+                w = seg['width'] * min(1, p)
+                if w > 0:
+                    x0 = seg['x'] - 4
+                    x1 = seg['x'] + w
+                    if x1 > x0:
+                        hld.rectangle([x0, seg['y'] + 4,
+                                       x1, seg['y'] + self.line_height + 4],
+                                      fill=HIGHLIGHT_COLOR)
 
-    # render teks di atas highlight
-    y = base_y
-    for line in lines:
-        x = self.margin_x
-        for w in line:
-            td.text((x, y), w['word'] + " ", font=self.font, fill=TEXT_COLOR)
-            x += self._get_text_width(w['word'] + " ")
-        y += self.line_height
+        y = base_y
+        for line in lines:
+            x = self.margin_x
+            for w in line:
+                td.text((x, y), w['word'] + " ", font=self.font, fill=TEXT_COLOR)
+                x += self._get_text_width(w['word'] + " ")
+            y += self.line_height
 
-    return np.array(
-        Image.alpha_composite(
-            Image.alpha_composite(base, hl_layer),
-            txt_layer
-        ).convert("RGB")
-    )
+        return np.array(
+            Image.alpha_composite(
+                Image.alpha_composite(base, hl_layer),
+                txt_layer
+            ).convert("RGB")
+        )
 
 # ==========================================================
 #  ADAPTIVE LAYOUT DAN RENDER
