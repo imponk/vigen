@@ -1,4 +1,4 @@
-name: 🚀 Generate Enhanced Video (on Push)
+name: 🚀 Force Video Generation
 
 on:
   push:
@@ -6,7 +6,6 @@ on:
       - "data_berita.txt"
       - "videogen_beta.py"
       - ".github/workflows/generate.yml"
-      - "requirements.txt"
   workflow_dispatch:
 
 jobs:
@@ -23,175 +22,67 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
-      - name: 3. Install System Dependencies
+      - name: 3. Install Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfreetype6-dev ffmpeg
-          echo "System dependencies installed"
-
-      - name: 4. Fix MoviePy Installation
-        run: |
+          sudo apt-get install -y libfreetype6-dev ffmpeg xvfb
           python -m pip install --upgrade pip
-          
-          # Complete uninstall and reinstall
-          pip uninstall -y moviepy imageio imageio-ffmpeg decorator proglog
-          
-          # Install with specific working versions
-          pip install decorator==4.4.2
-          pip install imageio==2.19.5
-          pip install imageio-ffmpeg==0.4.7
-          pip install proglog==0.1.10
-          pip install numpy>=1.20.0
-          pip install pillow>=9.0.0
-          
-          # Install MoviePy last with specific version
-          pip install moviepy==1.0.3
-          
-          echo "MoviePy installation completed"
+          pip install moviepy==1.0.3 pillow>=9.0.0 numpy>=1.20.0
 
-      - name: 5. Verify MoviePy Installation
+      - name: 4. Setup Virtual Display
         run: |
-          echo "Verifying MoviePy installation..."
-          python -c "import moviepy; print('MoviePy version:', moviepy.__version__)"
-          python -c "import moviepy; print('MoviePy location:', moviepy.__file__)"
-          
-          # Check directory structure
-          python -c "
-          import moviepy
-          import os
-          moviepy_dir = os.path.dirname(moviepy.__file__)
-          print('MoviePy directory contents:')
-          for item in os.listdir(moviepy_dir):
-              print('  -', item)
-          "
-          
-          # Test critical import
-          python -c "from moviepy.editor import ImageClip; print('SUCCESS: moviepy.editor import works')"
-          
-          # Test basic functionality
-          python -c "
-          from moviepy.editor import ImageClip
-          import numpy as np
-          frame = np.zeros((100, 100, 3), dtype=np.uint8)
-          clip = ImageClip(frame, duration=1.0)
-          print('SUCCESS: Basic video operations work')
-          print('Clip duration:', clip.duration, 'seconds')
-          "
-
-      - name: 6. Test Other Dependencies
-        run: |
-          echo "Testing other dependencies..."
-          python -c "from PIL import Image, ImageDraw, ImageFont; print('PIL: OK')"
-          python -c "import numpy as np; print('NumPy version:', np.__version__)"
-          python -c "import tkinter; print('Tkinter: Available')" || echo "Tkinter: Not available (expected)"
-          echo "Dependencies check completed"
-
-      - name: 7. Setup Test Environment
-        run: |
-          echo "Setting up test environment..."
-          if [ ! -f "data_berita.txt" ]; then
-            echo "Creating test file..."
-            echo "Test berita dengan [[important:highlight penting]] untuk demonstrasi." > data_berita.txt
-            echo "" >> data_berita.txt
-            echo "Sistem ini mendukung [[success:berbagai jenis]] highlight dalam teks Indonesia." >> data_berita.txt
-            echo "" >> data_berita.txt
-            echo "Fitur orphan prevention untuk kata seperti di, ke, dan Rp 500 juta." >> data_berita.txt
-            echo "" >> data_berita.txt
-            echo "[[fast:Animasi cepat]] dan [[slow:animasi lambat]] tersedia." >> data_berita.txt
-            echo "Test file created"
-          else
-            echo "Found existing data_berita.txt:"
-            head -5 data_berita.txt
-          fi
-          ls -la *.txt *.py
-
-      - name: 8. Run Enhanced Video Generation
-        run: |
-          echo "Starting Enhanced Video Generator..."
-          export GITHUB_ACTIONS=true
-          export CI=true
           export DISPLAY=:99
-          
-          # Run with error handling
-          python videogen_beta.py || {
-            echo "Script completed with exit code $?"
-            echo "This may be expected in headless environment"
-          }
-          echo "Video generation process completed"
+          Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+          sleep 2
 
-      - name: 9. Check Results
+      - name: 5. Create Test Data
         run: |
-          echo "Checking generation results..."
-          echo "Files in directory:"
+          cat > data_berita.txt << 'TESTDATA'
+          Breaking News: Harga BBM [[important:naik drastis]] hari ini.
+
+          Pemerintah mengumumkan kenaikan [[warning:Rp 2000 per liter]] untuk BBM.
+
+          Masyarakat diminta [[success:tetap tenang]] dan tidak panic buying.
+
+          Kebijakan ini [[fast:berlaku segera]] mempengaruhi transportasi.
+
+          Kompensasi diberikan kepada [[slow:masyarakat kurang mampu]] via bansos.
+          TESTDATA
+          echo "Test data created"
+          wc -l data_berita.txt
+
+      - name: 6. Modify Script for Forced Generation
+        run: |
+          cp videogen_beta.py videogen_beta_original.py
+          sed -i 's/os.environ.get("GITHUB_ACTIONS")/False/g' videogen_beta.py
+          sed -i 's/os.environ.get("CI")/False/g' videogen_beta.py
+          echo "Script modified to force video generation"
+
+      - name: 7. Run Video Generation
+        run: |
+          export DISPLAY=:99
+          export FORCE_VIDEO_GENERATION=true
+          python videogen_beta.py
+
+      - name: 8. Check Results
+        run: |
+          echo "Checking generated files..."
           ls -la
-          
           if ls *.mp4 1> /dev/null 2>&1; then
-            echo "SUCCESS: Found MP4 files:"
-            for video in *.mp4; do
-              size=$(du -h "$video" | cut -f1)
-              echo "  $video ($size)"
-            done
+            echo "SUCCESS: Videos generated!"
+            ls -la *.mp4
           else
             echo "No MP4 files found"
-            echo "This is expected in GitHub Actions headless environment"
-            echo "Script capabilities were verified in previous steps"
           fi
 
-      - name: 10. Upload Generated Videos
+      - name: 9. Upload All Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: enhanced-generated-videos
-          path: "*.mp4"
+          name: forced-video-results
+          path: |
+            *.mp4
+            *.py
+            *.txt
           retention-days: 7
           if-no-files-found: warn
-
-      - name: 11. Upload Source Files
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: source-files
-          path: |
-            videogen_beta.py
-            data_berita.txt
-          retention-days: 7
-          if-no-files-found: ignore
-
-      - name: 12. Summary Report
-        if: always()
-        run: |
-          echo "================================"
-          echo "ENHANCED VIDEO GENERATOR SUMMARY"
-          echo "================================"
-          
-          mp4_count=$(ls *.mp4 2>/dev/null | wc -l || echo 0)
-          echo "MP4 files generated: $mp4_count"
-          
-          echo ""
-          echo "Environment verification:"
-          echo "  ✅ Python 3.11"
-          echo "  ✅ MoviePy with editor module"
-          echo "  ✅ PIL/Pillow"
-          echo "  ✅ NumPy"
-          echo "  ✅ System dependencies (ffmpeg)"
-          
-          echo ""
-          echo "Enhanced features available:"
-          echo "  ✅ Advanced highlight system"
-          echo "  ✅ Multi-line progressive highlighting"
-          echo "  ✅ Indonesian text optimization"
-          echo "  ✅ Smart duration calculation"
-          echo "  ✅ Headless environment support"
-          
-          if [ $mp4_count -gt 0 ]; then
-            echo ""
-            echo "✅ SUCCESS: Video generation completed!"
-          else
-            echo ""
-            echo "ℹ️  No videos in headless mode (normal behavior)"
-            echo "✅ All systems verified and ready for local use"
-          fi
-          
-          echo ""
-          echo "📦 Artifacts uploaded for download"
-          echo "================================"
