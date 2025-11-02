@@ -164,7 +164,7 @@ def make_text_and_highlight_frame(font,text,pos,frame_idx,total_frames):
                     ww = bbox[2] - bbox[0]
                 except: ww=len(w)*20
                 
-                prog=min(1.0,frame_idx/float(swipe)); xe=cx+ww*prog
+                prog=min(1.0,frame_idx/float(swipe)); xs=cx+ww*(1-prog)
                 
                 # Render kotak highlight
                 dhl.rectangle([
