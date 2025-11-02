@@ -24,7 +24,7 @@ HIGHLIGHT_SPEED = 2.0 # Kecepatan swipe dalam detik
 ISILINE_PADDING = 5 # Jarak vertikal antar baris
 
 # ===============================
-#   DURASI & TEKS PEMBANTU
+#   DURASI & TEKS PEMBANTU
 # ===============================
 
 def durasi_otomatis(teks, min_dur=3.5):
@@ -117,7 +117,7 @@ def smart_wrap(text, font, max_width, margin_left=70, margin_right=90):
 
 
 # ===============================
-#   UTILITAS FRAME
+#   UTILITAS FRAME
 # ===============================
 
 def make_text_frame(base_img, text, font, pos, alpha=255):
@@ -130,7 +130,6 @@ def make_text_frame(base_img, text, font, pos, alpha=255):
 def make_text_and_highlight_frame(font,text,pos,frame_idx,total_frames):
     """
     Fungsi baru untuk render teks isi dengan highlight geser (Termasuk Perbaikan V61).
-    MODIFIKASI: Mengubah arah swipe dari Kanan ke Kiri menjadi Kiri ke Kanan.
     """
     margin_x,y=pos
     hl=Image.new("RGBA",VIDEO_SIZE,(0,0,0,0))
@@ -145,8 +144,8 @@ def make_text_and_highlight_frame(font,text,pos,frame_idx,total_frames):
         lh = 30 + ISILINE_PADDING
     
     # 🔥 V61 FIX: Geser kotak highlight ke bawah 6 piksel
-HIGHLIGHT_TOP_OFFSET = 3 + 6      # Posisi Y atas kotak
-HIGHLIGHT_BOTTOM_OFFSET = lh - 2 + 6
+    HIGHLIGHT_TOP_OFFSET = 3 + 6      # Posisi Y atas kotak
+    HIGHLIGHT_BOTTOM_OFFSET = lh - 2 + 6 # Posisi Y bawah kotak
 
     swipe=int(FPS*HIGHLIGHT_SPEED)
     for line in text.split("\n"):
@@ -165,15 +164,13 @@ HIGHLIGHT_BOTTOM_OFFSET = lh - 2 + 6
                     ww = bbox[2] - bbox[0]
                 except: ww=len(w)*20
                 
-                prog=min(1.0,frame_idx/float(swipe)); 
-                # BARIS PENTING: Mengubah perhitungan untuk swipe Kiri ke Kanan
-                xe=cx+ww*prog # Posisi X akhir kotak highlight (bergerak dari kiri ke kanan)
+                prog=min(1.0,frame_idx/float(swipe)); xs=cx+ww*(1-prog)
                 
-                # Render kotak highlight (Kiri ke Kanan: mulai dari cx, berakhir di xe)
+                # Render kotak highlight
                 dhl.rectangle([
-                    cx-4, # Selalu mulai dari awal teks (cx)
+                    xs-4, 
                     y + HIGHLIGHT_TOP_OFFSET, 
-                    xe+4, # Bergerak hingga xe (posisi akhir yang dianimasikan)
+                    cx+ww+4, 
                     y + HIGHLIGHT_BOTTOM_OFFSET
                 ],fill=HIGHLIGHT_COLOR)
                 
@@ -192,7 +189,7 @@ HIGHLIGHT_BOTTOM_OFFSET = lh - 2 + 6
         y+=lh
     return hl,tx
 
-def ease_out(t): 
+def ease_out(t):  
     return 1 - pow(1 - t, 3)
 
 def render_wipe_layer(layer, t):
@@ -205,7 +202,7 @@ def render_wipe_layer(layer, t):
     return Image.composite(layer, Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0)), mask)
 
 # ===============================
-#   STREAMING RENDER CLIPS
+#   STREAMING RENDER CLIPS
 # ===============================
 
 def make_clip_from_generator(frame_generator, duration):
@@ -372,7 +369,7 @@ def render_penutup(dur=3.0):
     return make_clip_from_generator(frame_generator, dur)
 
 # ===============================
-#   OVERLAY, INPUT, OUTPUT
+#   OVERLAY, INPUT, OUTPUT
 # ===============================
 
 def add_overlay(base_clip):
@@ -485,7 +482,7 @@ def buat_video(data, index=None):
         print(f"❌ Gagal membuat video untuk '{judul}': {e}")
 
 # ===============================
-#   MAIN PROGRAM
+#   MAIN PROGRAM
 # ===============================
 
 if __name__ == "__main__":
@@ -494,11 +491,9 @@ if __name__ == "__main__":
     font_files_ok = True
     for key, font_file in FONTS.items():
         if not os.path.exists(font_file):
-            print(f"❌ File Font '{font_file}' untuk '{key}' tidak ditemukan! Pastikan Anda memiliki semua file font yang terdaftar.")
+            print(f"❌ File Font '{font_file}' untuk '{key}' tidak ditemukan!")
             font_files_ok = False
     if not font_files_ok:
-        # Menambahkan pesan untuk memastikan pengguna tahu harus melakukan apa
-        print("\nSilakan unduh atau pastikan file font tersebut ada di direktori yang sama.")
         exit(1)
 
     semua = baca_semua_berita(FILE_INPUT)
