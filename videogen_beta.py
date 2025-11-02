@@ -202,24 +202,49 @@ def baca_semua_berita_stable(filename):
     try:
         with open(filename, 'r', encoding='utf-8') as f:
             lines = f.read().splitlines()
-        data, cur, i = [], {}, 1
-        for l in lines:
-            if l.startswith("Judul:"):
-                if cur: data.append(cur)
-                cur = {'Judul': l[6:].strip()}
-            elif l.startswith("Isi:"):
-                cur[f'Isi_{i}'] = l[4:].strip(); i += 1
-        if cur: data.append(cur)
-        return data
-    except Exception as e:
-        print("parse fail:", e)
-        return []
 
-def hitung_durasi_isi(text):
-    clean = re.sub(r'\[\[.*?\]\]', lambda m: m.group(0)[2:-2], text)
-    words = len(clean.split())
-    dur = (words / 160) * 60
-    return round(max(3, min(10, dur)) + 1.5, 1)
+        data = []
+        current = {}
+        key = None
+        isi_count = 1
+
+        for line in lines:
+            line = line.strip()
+
+            # Jika baris kosong, lanjut
+            if not line:
+                continue
+
+            # Cek field baru
+            if line.startswith("Judul:"):
+                if current:
+                    data.append(current)
+                    current = {}
+                    isi_count = 1
+                key = "Judul"
+                content = line.replace("Judul:", "").strip()
+                current[key] = content
+            elif line.startswith("Subjudul:"):
+                key = "Subjudul"
+                content = line.replace("Subjudul:", "").strip()
+                current[key] = content
+            elif line.startswith("Isi:"):
+                key = f"Isi_{isi_count}"
+                content = line.replace("Isi:", "").strip()
+                current[key] = content
+                isi_count += 1
+            else:
+                # Lanjutan dari baris sebelumnya
+                if key:
+                    current[key] = (current.get(key, "") + " " + line).strip()
+
+        if current:
+            data.append(current)
+        return data
+
+    except Exception as e:
+        print(f"❌ Error parsing berita: {e}")
+        return []
 
 # ==========================================================
 #  MAIN VIDEO BUILDER
