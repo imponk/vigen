@@ -145,8 +145,8 @@ def make_text_and_highlight_frame(font,text,pos,frame_idx,total_frames):
         lh = 30 + ISILINE_PADDING
     
     # 🔥 V61 FIX: Geser kotak highlight ke bawah 6 piksel
-    HIGHLIGHT_TOP_OFFSET = 3 + 6      # Posisi Y atas kotak
-    HIGHLIGHT_BOTTOM_OFFSET = lh - 2 + 6 # Posisi Y bawah kotak
+HIGHLIGHT_TOP_OFFSET = 3 + 6      # Posisi Y atas kotak
+HIGHLIGHT_BOTTOM_OFFSET = lh - 2 + 6
 
     swipe=int(FPS*HIGHLIGHT_SPEED)
     for line in text.split("\n"):
