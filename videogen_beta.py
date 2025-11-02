@@ -1,5 +1,6 @@
 # ==========================================================
-# ✅ VIDEO GENERATOR BETA FINAL V2 (Highlight + Multiline Fix)
+# ✅ VIDEO GENERATOR BETA FINAL V3
+# (Smooth Highlight + Multi-line Title Fix)
 # ==========================================================
 from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
@@ -85,6 +86,9 @@ class StableTextProcessor:
             lines.append(cur_line)
         return lines
 
+    # ======================================================
+    #   HALUS: CONTINUOUS HIGHLIGHT ANIMATION (cubic easing)
+    # ======================================================
     def render_lines_with_continuous_highlight(self, lines, base_y, frame_idx, total_frames):
         base = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
         hl_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
@@ -92,11 +96,12 @@ class StableTextProcessor:
         hld = ImageDraw.Draw(hl_layer)
         td = ImageDraw.Draw(txt_layer)
 
-        progress = frame_idx / max(1, total_frames)  # animasi halus penuh durasi
+        progress = min(1.0, frame_idx / float(total_frames))
         all_segments = []
         total_chars = 0
         y = base_y
 
+        # Kumpulkan segmen highlight
         for line in lines:
             x = self.margin_x
             for w in line:
@@ -119,9 +124,9 @@ class StableTextProcessor:
             if seg['start'] <= cur_chars:
                 chars = max(0, cur_chars - seg['start'])
                 L = len(seg['word'])
-                t = chars / L if L else 1
-                p = 1 - pow(1 - t, 3)  # easing smooth
-                w = seg['width'] * min(1, p)
+                t = min(1.0, chars / float(L) if L else 1)
+                smooth = 1 - pow(1 - t, 3)  # cubic easing
+                w = seg['width'] * smooth
                 if w > 0:
                     x0 = seg['x'] - 4
                     x1 = seg['x'] + w
@@ -130,6 +135,7 @@ class StableTextProcessor:
                                        x1, seg['y'] + self.line_height + 4],
                                       fill=HIGHLIGHT_COLOR)
 
+        # Gambar teks
         y = base_y
         for line in lines:
             x = self.margin_x
@@ -152,7 +158,7 @@ def calculate_adaptive_layout(text, font_path, size, margin_x):
     font = load_font_safe(font_path, size)
     proc = StableTextProcessor(font, VIDEO_SIZE[0], margin_x)
     lines = proc.smart_wrap_with_highlights(text)
-    base_y = int(VIDEO_SIZE[1] * 0.55)  # turun agar tidak ketabrak overlay
+    base_y = int(VIDEO_SIZE[1] * 0.65)  # posisi lebih bawah
     total_h = len(lines) * proc.line_height
     batas_bawah = VIDEO_SIZE[1] - 180
     if base_y + total_h > batas_bawah:
@@ -175,14 +181,14 @@ def render_opening_stable(upper, judul, subjudul, fonts):
     proc = StableTextProcessor(font_j, VIDEO_SIZE[0])
     lines = proc.smart_wrap_with_highlights(judul)
     total_frames = int(FPS * 3)
-    frames = [proc.render_lines_with_continuous_highlight(lines, 400, i, total_frames)
+    frames = [proc.render_lines_with_continuous_highlight(lines, 380, i, total_frames)
               for i in range(total_frames)]
 
     if subjudul:
         font_s = load_font_safe(fonts['subjudul'], 36)
         proc2 = StableTextProcessor(font_s, VIDEO_SIZE[0])
         lines2 = proc2.smart_wrap_with_highlights(subjudul)
-        frames2 = [proc2.render_lines_with_continuous_highlight(lines2, 500, i, total_frames)
+        frames2 = [proc2.render_lines_with_continuous_highlight(lines2, 470, i, total_frames)
                    for i in range(total_frames)]
         frames = [Image.alpha_composite(Image.fromarray(f1).convert("RGBA"),
                                         Image.fromarray(f2).convert("RGBA"))
@@ -212,39 +218,66 @@ def baca_semua_berita_stable(filename):
         with open(filename, 'r', encoding='utf-8') as f:
             lines = f.read().splitlines()
 
-        data, current, key, isi_count = [], {}, None, 1
+        data = []
+        current = {}
+        key = None
+        isi_count = 1
+        buffer = []
+
+        def commit_buffer():
+            nonlocal buffer, key, current
+            if key and buffer:
+                joined = " ".join(buffer).strip()
+                if joined:
+                    current[key] = (current.get(key, "") + " " + joined).strip()
+            buffer = []
+
         for line in lines:
             line = line.strip()
             if not line:
                 continue
-            if re.match(r"^Judul:.*", line):
+
+            # --- deteksi tag ---
+            if line.startswith("Judul:"):
+                commit_buffer()
                 if current:
                     data.append(current)
-                    current, isi_count = {}, 1
-                content = line.replace("Judul:", "").strip()
+                    current = {}
+                    isi_count = 1
                 key = "Judul"
-                current[key] = content
+                content = line.replace("Judul:", "").strip()
+                buffer = [content] if content else []
                 continue
-            if re.match(r"^Subjudul:.*", line):
-                content = line.replace("Subjudul:", "").strip()
+
+            if line.startswith("Subjudul:"):
+                commit_buffer()
                 key = "Subjudul"
-                current[key] = content
+                content = line.replace("Subjudul:", "").strip()
+                buffer = [content] if content else []
                 continue
-            if re.match(r"^Isi:.*", line):
-                content = line.replace("Isi:", "").strip()
+
+            if line.startswith("Isi:"):
+                commit_buffer()
                 key = f"Isi_{isi_count}"
-                current[key] = content
                 isi_count += 1
+                content = line.replace("Isi:", "").strip()
+                buffer = [content] if content else []
                 continue
-            if key:
-                current[key] = (current.get(key, "") + " " + line).strip()
+
+            buffer.append(line)
+
+        commit_buffer()
         if current:
             data.append(current)
         return data
+
     except Exception as e:
         print("parse fail:", e)
         return []
 
+# ==========================================================
+#  DURASI OTOMATIS BERDASARKAN JUMLAH KATA
+# ==========================================================
 def hitung_durasi_isi(text):
     clean = re.sub(r'\[\[.*?\]\]', lambda m: m.group(0)[2:-2], text)
     words = len(clean.split())
