@@ -250,8 +250,8 @@ if __name__ == "__main__":
         sys.exit(1)
 
     for idx, berita in enumerate(berita_list, 1):
-        print(f"📰 Membuat video berita {idx}: {berita.get('Judul','(Tanpa Judul)')}")
-        clip = buat_video_stable(berita)
-nama_file = f"output_video_{idx}.mp4"
-        clip.write_videofile(nama_file, fps=FPS)
-        print(f"✅ Selesai: {nama_file}\n")
+    print(f"📰 Membuat video berita {idx}: {berita.get('Judul','(Tanpa Judul)')}")
+    clip = buat_video_stable(berita)
+    nama_file = f"output_video_{idx}.mp4"
+    clip.write_videofile(nama_file, fps=FPS)
+    print(f"✅ Selesai: {nama_file}\n")
