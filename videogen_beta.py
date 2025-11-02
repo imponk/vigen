@@ -163,10 +163,8 @@ def make_text_and_highlight_frame(font,text,pos,frame_idx,total_frames):
                     bbox = draw.textbbox((0, 0), w, font=font)
                     ww = bbox[2] - bbox[0]
                 except: ww=len(w)*20
-                
-prog = min(1.0, frame_idx / float(swipe))
-xs = cx  # mulai dari kiri
-xe = cx + ww * prog  # meluas ke kanan
+
+                prog=min(1.0,frame_idx/float(swipe)); xs=cx;xe=cx+ww*(prog)
 
                 # Render kotak highlight
                 dhl.rectangle([
