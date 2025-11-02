@@ -1,15 +1,10 @@
-name: 🚀 Force Video Generation
+name: 🔍 Debug Video Generation
 
 on:
-  push:
-    paths:
-      - "data_berita.txt"
-      - "videogen_beta.py"
-      - ".github/workflows/generate.yml"
   workflow_dispatch:
 
 jobs:
-  build_video:
+  debug_video:
     runs-on: ubuntu-latest
 
     steps:
@@ -35,54 +30,138 @@ jobs:
           Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
           sleep 2
 
-      - name: 5. Create Test Data
+      - name: 5. Debug Script Analysis
         run: |
-          cat > data_berita.txt << 'TESTDATA'
-          Breaking News: Harga BBM [[important:naik drastis]] hari ini.
+          echo "=== SCRIPT ANALYSIS ==="
+          echo "Script size: $(wc -l videogen_beta.py)"
+          echo "Contains main function:"
+          grep -n "def main" videogen_beta.py || echo "No main function found"
+          echo "Contains video generation:"
+          grep -n "mp4\|video\|write_videofile" videogen_beta.py || echo "No video generation code found"
+          echo "Contains GUI detection:"
+          grep -n "GITHUB_ACTIONS\|CI\|headless" videogen_beta.py || echo "No headless detection found"
+          echo "Contains error handling:"
+          grep -n "try:\|except:\|Exception" videogen_beta.py | head -5
 
-          Pemerintah mengumumkan kenaikan [[warning:Rp 2000 per liter]] untuk BBM.
-
-          Masyarakat diminta [[success:tetap tenang]] dan tidak panic buying.
-
-          Kebijakan ini [[fast:berlaku segera]] mempengaruhi transportasi.
-
-          Kompensasi diberikan kepada [[slow:masyarakat kurang mampu]] via bansos.
-          TESTDATA
-          echo "Test data created"
-          wc -l data_berita.txt
-
-      - name: 6. Modify Script for Forced Generation
+      - name: 6. Test Script Components
         run: |
-          cp videogen_beta.py videogen_beta_original.py
-          sed -i 's/os.environ.get("GITHUB_ACTIONS")/False/g' videogen_beta.py
-          sed -i 's/os.environ.get("CI")/False/g' videogen_beta.py
-          echo "Script modified to force video generation"
+          echo "=== TESTING SCRIPT COMPONENTS ==="
+          python -c "
+          try:
+              # Test imports
+              exec(open('videogen_beta.py').read().split('def main')[0])
+              print('✅ Script imports successful')
+          except Exception as e:
+              print(f'❌ Import error: {e}')
+          
+          try:
+              from moviepy.editor import ImageClip
+              import numpy as np
+              frame = np.zeros((720, 1280, 3), dtype=np.uint8)
+              clip = ImageClip(frame, duration=1.0)
+              clip.write_videofile('test_basic.mp4', fps=30, audio=False, verbose=False, logger=None)
+              print('✅ Basic video creation works')
+          except Exception as e:
+              print(f'❌ Basic video creation failed: {e}')
+          "
 
-      - name: 7. Run Video Generation
+      - name: 7. Create Simple Test Data
         run: |
+          echo "=== CREATING TEST DATA ==="
+          cat > simple_test.txt << 'EOF'
+          Test sederhana tanpa highlight untuk debugging.
+
+          Ini adalah paragraph kedua yang normal.
+
+          Paragraph ketiga untuk memastikan segmentasi bekerja.
+          EOF
+          
+          cat > highlight_test.txt << 'EOF'
+          Test dengan [[important:highlight merah]] untuk debugging.
+
+          Paragraph dengan [[success:highlight hijau]] dan text normal.
+
+          Test [[fast:animasi cepat]] dan [[slow:animasi lambat]] berfungsi.
+          EOF
+
+      - name: 8. Run Script with Debug
+        run: |
+          echo "=== RUNNING SCRIPT WITH DEBUG ==="
           export DISPLAY=:99
-          export FORCE_VIDEO_GENERATION=true
-          python videogen_beta.py
+          export DEBUG=true
+          
+          # Copy and modify script for debugging
+          cp videogen_beta.py debug_videogen.py
+          
+          # Add debug prints
+          sed -i '/def main/a\    print("DEBUG: main() function called")' debug_videogen.py
+          sed -i 's/os.environ.get("GITHUB_ACTIONS")/False/g' debug_videogen.py
+          sed -i 's/os.environ.get("CI")/False/g' debug_videogen.py
+          
+          echo "Running debug version..."
+          python debug_videogen.py 2>&1 | tee debug_output.log
+          
+          echo "Debug output captured"
 
-      - name: 8. Check Results
+      - name: 9. Minimal Video Generation Test
         run: |
-          echo "Checking generated files..."
-          ls -la
+          echo "=== MINIMAL VIDEO TEST ==="
+          python -c "
+          from moviepy.editor import ImageClip, concatenate_videoclips
+          from PIL import Image, ImageDraw
+          import numpy as np
+          
+          print('Creating minimal test video...')
+          
+          # Create 3 simple frames
+          frames = []
+          for i in range(90):  # 3 seconds
+              img = Image.new('RGB', (720, 1280), (0, 0, 0))
+              draw = ImageDraw.Draw(img)
+              draw.text((50, 400), f'Test Frame {i+1}', fill=(255, 255, 255))
+              frames.append(np.array(img))
+          
+          # Create clips
+          clips = [ImageClip(frame, duration=1/30) for frame in frames]
+          video = concatenate_videoclips(clips)
+          
+          # Write video
+          video.write_videofile('minimal_test.mp4', fps=30, audio=False, verbose=False, logger=None)
+          print('✅ Minimal video created successfully!')
+          "
+
+      - name: 10. Check All Outputs
+        run: |
+          echo "=== FINAL ANALYSIS ==="
+          echo "Generated files:"
+          ls -la *.mp4 *.py *.txt *.log
+          
+          echo "Debug log content:"
+          if [ -f debug_output.log ]; then
+            echo "--- DEBUG OUTPUT ---"
+            cat debug_output.log
+            echo "--- END DEBUG ---"
+          fi
+          
+          echo "Video files analysis:"
           if ls *.mp4 1> /dev/null 2>&1; then
-            echo "SUCCESS: Videos generated!"
-            ls -la *.mp4
+            for video in *.mp4; do
+              size=$(du -h "$video" | cut -f1)
+              echo "  📹 $video ($size)"
+            done
           else
-            echo "No MP4 files found"
+            echo "❌ No MP4 files generated"
           fi
 
-      - name: 9. Upload All Results
+      - name: 11. Upload Debug Results
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: forced-video-results
+          name: debug-analysis-results
           path: |
             *.mp4
             *.py
             *.txt
+            *.log
           retention-days: 7
           if-no-files-found: warn
