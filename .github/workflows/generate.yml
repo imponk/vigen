@@ -7,7 +7,6 @@ on:
       - "videogen_beta.py"
       - ".github/workflows/generate.yml"
       - "requirements.txt"
-      - "videogen_beta_full.txt"
   workflow_dispatch:
 
 jobs:
@@ -28,7 +27,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libfreetype6-dev ffmpeg
-          echo "✅ System dependencies installed"
+          echo "System dependencies installed"
 
       - name: 4. Install Python Dependencies
         run: |
@@ -36,70 +35,50 @@ jobs:
           pip install --force-reinstall --no-cache-dir moviepy==2.2.1
           pip install --force-reinstall --no-cache-dir pillow>=9.0.0
           pip install --force-reinstall --no-cache-dir numpy>=1.20.0
-          if [ -f requirements.txt ]; then
-            pip install --force-reinstall --no-cache-dir -r requirements.txt
-            echo "✅ Requirements.txt installed"
-          else
-            echo "⚠️ No requirements.txt found, using core dependencies"
-          fi
-          echo "✅ Enhanced Python dependencies installed"
+          echo "Python dependencies installed"
 
       - name: 5. Environment Verification
         run: |
-          echo "🔍 Testing environment..."
+          echo "Testing environment..."
           python --version
-          pip freeze | grep -E "(moviepy|pillow|numpy)"
-          python -c "
-          import moviepy
-          print(f'✅ MoviePy version: {moviepy.__version__}')
-          from moviepy.editor import ImageClip
-          print('✅ MoviePy.editor imports successful')
-          from PIL import Image
-          print('✅ PIL imports successful')
-          import numpy as np
-          print(f'✅ NumPy version: {np.__version__}')
-          print('✅ All imports successful!')
-          "
+          python -c "import moviepy; print('MoviePy version:', moviepy.__version__)"
+          python -c "from moviepy.editor import ImageClip; print('MoviePy editor OK')"
+          python -c "from PIL import Image; print('PIL OK')"
+          python -c "import numpy as np; print('NumPy version:', np.__version__)"
+          echo "All imports successful"
 
       - name: 6. Setup Test Environment
         run: |
-          echo "📝 Setting up test environment..."
-          if [ -f "data_berita.txt" ]; then
-            echo "✅ Found data_berita.txt"
-            head -3 data_berita.txt
+          echo "Setting up test environment..."
+          if [ ! -f "data_berita.txt" ]; then
+            echo "Creating test file..."
+            echo "Test berita dengan [[important:highlight penting]] untuk demonstrasi." > data_berita.txt
+            echo "" >> data_berita.txt
+            echo "Sistem ini mendukung [[success:berbagai jenis]] highlight dalam teks Indonesia." >> data_berita.txt
+            echo "" >> data_berita.txt
+            echo "Fitur orphan prevention juga berfungsi untuk kata seperti di, ke, dan Rp 500 juta." >> data_berita.txt
+            echo "Test file created"
           else
-            echo "⚠️ Creating test file..."
-            cat > data_berita.txt << 'TESTEOF'
-Test berita dengan [[important:highlight penting]] untuk demonstrasi.
-
-Sistem ini mendukung [[success:berbagai jenis]] highlight dalam teks Indonesia.
-
-Fitur [[warning:orphan prevention]] juga berfungsi untuk kata seperti di, ke, dan Rp 500 juta.
-
-[[fast:Animasi cepat]] dan [[slow:animasi lambat]] tersedia untuk variasi.
-
-Backward compatibility tetap terjaga untuk teks tanpa highlight.
-TESTEOF
-            echo "✅ Test file created"
+            echo "Found existing data_berita.txt"
           fi
           ls -la *.txt *.py
 
       - name: 7. Run Enhanced Video Generation
         run: |
-          echo "🚀 Starting Enhanced Video Generator..."
+          echo "Starting Enhanced Video Generator..."
           export GITHUB_ACTIONS=true
           export CI=true
-          python videogen_beta.py || echo "Script completed with warnings"
-          echo "✅ Enhanced video generation completed"
+          python videogen_beta.py
+          echo "Video generation completed"
 
       - name: 8. Output Verification
         run: |
-          echo "🔍 Checking outputs..."
+          echo "Checking outputs..."
           if ls *.mp4 1> /dev/null 2>&1; then
-            echo "✅ Found MP4 files:"
+            echo "Found MP4 files:"
             ls -la *.mp4
           else
-            echo "⚠️ No MP4 files (expected in headless environment)"
+            echo "No MP4 files found (expected in headless environment)"
           fi
           echo "All files:"
           ls -la
@@ -109,10 +88,7 @@ TESTEOF
         uses: actions/upload-artifact@v4
         with:
           name: enhanced-generated-videos
-          path: |
-            output_video_*.mp4
-            *_enhanced.mp4
-            test_*.mp4
+          path: output_video_*.mp4
           retention-days: 7
           if-no-files-found: warn
 
@@ -124,22 +100,22 @@ TESTEOF
           path: |
             videogen_beta.py
             data_berita.txt
-            *.log
           retention-days: 7
           if-no-files-found: ignore
 
       - name: 11. Generation Summary
         if: always()
         run: |
-          echo "🎯 === GENERATION SUMMARY ==="
+          echo "GENERATION SUMMARY"
+          echo "=================="
           mp4_count=$(ls *.mp4 2>/dev/null | wc -l || echo 0)
-          echo "📹 MP4 files generated: $mp4_count"
+          echo "MP4 files generated: $mp4_count"
           if [ $mp4_count -gt 0 ]; then
-            echo "✅ SUCCESS: Video generation completed"
+            echo "SUCCESS: Video generation completed"
             ls -la *.mp4
           else
-            echo "⚠️ No videos generated (normal for headless environment)"
-            echo "✅ Enhanced script executed successfully"
+            echo "No videos generated (normal for headless environment)"
+            echo "Enhanced script executed successfully"
           fi
-          echo "📦 Artifacts uploaded: enhanced-generated-videos, enhanced-scripts"
-          echo "🎉 Enhanced workflow completed!"
+          echo "Artifacts uploaded: enhanced-generated-videos, enhanced-scripts"
+          echo "Enhanced workflow completed"
