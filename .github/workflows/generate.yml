@@ -1,211 +1,73 @@
-name: 🎬 Auto Video Generator
+name: 🚀 Generate Video (on Push)
 
 on:
   push:
-    # Trigger on ANY push to main/master branch
-    branches: 
-      - main
-      - master
-  pull_request:
-    branches:
-      - main  
-      - master
-  # Also allow manual trigger
-  workflow_dispatch:
+    paths:
+      # Ini adalah pemicu "metode developer"
+      - "data_berita.txt"
+      - "videogen_beta.py"
+      - ".github/workflows/generate.yml"
+      - "requirements.txt"
 
 jobs:
-  video_generation:
+  build_video:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - name: 📥 Checkout Code
+      # 1. Mengunduh kode, font, dan file data Anda ke server
+      - name: 1. Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🐍 Setup Python
+      # 2. Menyiapkan lingkungan Python 3.11
+      - name: 2. Setup Python 3.11
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
+          cache: "pip" 
 
-      - name: 📦 Install Dependencies  
+      # 3. Install library sistem untuk FONT
+      - name: 3. Install System Dependencies (For Fonts)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libfreetype6-dev ffmpeg xvfb
+          sudo apt-get install -y libfreetype6-dev
+
+# 4. Install library Python (Paksa Reinstall)
+      - name: 4. Install Python Dependencies
+        run: |
           python -m pip install --upgrade pip
-          pip install moviepy==1.0.3 pillow>=9.0.0 numpy>=1.20.0
-          echo "✅ Dependencies installed"
+          # --force-reinstall: Hapus yang lama (jika ada) & instal ulang
+          # --no-cache-dir: Jangan gunakan cache pip
+          pip install --force-reinstall --no-cache-dir -r requirements.txt
 
-      - name: 🖥️ Setup Virtual Display
+          # (!!!) LANGKAH DIAGNOSTIK BARU (!!!)
+      # Memeriksa lebih detail sebelum skrip jalan
+      - name: Verify Installation Before Run
         run: |
-          export DISPLAY=:99
-          Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
-          sleep 3
-          echo "✅ Virtual display ready"
+          echo "--- Python Path ---"
+          which python
+          echo "--- Installed Packages (pip freeze) ---"
+          pip freeze | grep moviepy
+          echo "--- Python sys.path (tempat Python mencari library) ---"
+          python -c "import sys; print(sys.path)"
+          echo "--- Mencoba import 'moviepy' (dasar) ---"
+          python -c "import moviepy; print('✅ Impor moviepy dasar BERHASIL!')"
+          echo "--- Mencari lokasi instalasi moviepy ---"
+          MOVIEPY_PATH=$(python -c "import moviepy; import os; print(os.path.dirname(moviepy.__file__))")
+          echo "Moviepy path: $MOVIEPY_PATH"
+          echo "--- Isi folder moviepy ---"
+          ls -l "$MOVIEPY_PATH"
+          echo "--- Mencoba import 'moviepy.editor' ---"
+          python -c "import moviepy.editor; print('✅ Impor moviepy.editor BERHASIL!')"
 
-      - name: 📋 Check Files Changed
-        run: |
-          echo "=== FILES CHANGED CHECK ==="
-          echo "Current directory:"
-          pwd
-          echo "Files in repository:"
-          ls -la *.txt *.py || echo "No matching files"
-          echo "Git log (last commit):"
-          git log --oneline -1
-          echo "=========================="
+      # 5. Menjalankan skrip Python Anda
+      - name: 5. Run Video Generation Script
+        run: python videogen_beta.py
 
-      - name: 📝 Ensure Test Data Exists
-        run: |
-          if [ ! -f "data_berita.txt" ]; then
-            echo "Creating data_berita.txt..."
-            cat > data_berita.txt << 'AUTODATA'
-Auto-generated: Breaking News dengan [[important:highlight otomatis]] dari workflow.
-
-Sistem deteksi otomatis [[success:berhasil berfungsi]] ketika ada push ke repository.
-
-Data ini di-generate [[warning:secara otomatis]] oleh GitHub Actions.
-
-Testing [[fast:trigger otomatis]] untuk video generation yang seamless.
-
-Workflow ini akan [[slow:selalu berjalan]] ketika ada perubahan di repository.
-AUTODATA
-            echo "✅ Auto-generated data_berita.txt"
-          else
-            echo "✅ Found existing data_berita.txt:"
-            head -3 data_berita.txt
-          fi
-
-      - name: 🔧 Force Script Modification
-        run: |
-          echo "Modifying script for guaranteed video generation..."
-          cp videogen_beta.py videogen_original.py
-          
-          # Remove all headless detection
-          sed -i 's/GITHUB_ACTIONS/DISABLED_GITHUB_ACTIONS/g' videogen_beta.py
-          sed -i 's/os\.environ\.get.*CI.*)/False/g' videogen_beta.py
-          
-          echo "✅ Script modified to force generation"
-
-      - name: 🎬 Generate Video
-        run: |
-          echo "=== FORCED VIDEO GENERATION ==="
-          export DISPLAY=:99
-          export FORCE_GENERATION=true
-          
-          # Run with maximum verbosity
-          python videogen_beta.py 2>&1 | tee generation.log
-          
-          echo "✅ Video generation process completed"
-
-      - name: 🎯 Create Fallback Video
-        if: always()
-        run: |
-          echo "Creating guaranteed fallback video..."
-          python -c "
-          from moviepy.editor import ImageClip, concatenate_videoclips
-          from PIL import Image, ImageDraw, ImageFont
-          import numpy as np
-          import os
-          
-          print('📹 Creating fallback video...')
-          
-          # Read actual data
-          try:
-              with open('data_berita.txt', 'r') as f:
-                  content = f.read()
-              lines = [line.strip() for line in content.split('\n') if line.strip()]
-          except:
-              lines = ['Fallback video generation', 'GitHub Actions auto-trigger test', 'Video creation successful']
-          
-          # Create frames for each line
-          all_clips = []
-          for i, line in enumerate(lines[:5]):  # Max 5 segments
-              frames = []
-              for frame_num in range(120):  # 4 seconds each
-                  img = Image.new('RGB', (720, 1280), (0, 0, 0))
-                  draw = ImageDraw.Draw(img)
-                  
-                  # Title
-                  draw.text((50, 200), f'Auto-Generated Video {i+1}', fill=(255, 255, 255))
-                  
-                  # Content (wrap text)
-                  words = line.split()
-                  text_lines = []
-                  current_line = ''
-                  for word in words:
-                      if len(current_line + word) < 25:
-                          current_line += word + ' '
-                      else:
-                          text_lines.append(current_line.strip())
-                          current_line = word + ' '
-                  if current_line:
-                      text_lines.append(current_line.strip())
-                  
-                  y = 400
-                  for text_line in text_lines[:3]:  # Max 3 lines
-                      draw.text((50, y), text_line, fill=(255, 255, 255))
-                      y += 40
-                  
-                  # Progress indicator
-                  progress = frame_num / 120
-                  bar_width = int(620 * progress)
-                  draw.rectangle([50, 1200, 50 + bar_width, 1220], fill=(0, 124, 188))
-                  
-                  frames.append(np.array(img))
-              
-              clip = concatenate_videoclips([ImageClip(f, duration=1/30) for f in frames])
-              all_clips.append(clip)
-          
-          # Combine all segments
-          if all_clips:
-              final_video = concatenate_videoclips(all_clips)
-              final_video.write_videofile('output_video_auto_1.mp4', fps=30, audio=False, verbose=False, logger=None)
-              print('✅ Fallback video created: output_video_auto_1.mp4')
-          "
-
-      - name: 📊 Verify Results
-        if: always()
-        run: |
-          echo "=== GENERATION RESULTS ==="
-          echo "All files:"
-          ls -la
-          
-          echo "MP4 files:"
-          if ls *.mp4 1> /dev/null 2>&1; then
-            for video in *.mp4; do
-              size=$(du -h "$video" | cut -f1)
-              echo "  ✅ $video ($size)"
-            done
-          else
-            echo "  ❌ No MP4 files found"
-          fi
-          
-          echo "Log files:"
-          if ls *.log 1> /dev/null 2>&1; then
-            echo "Generation log content:"
-            cat generation.log | tail -20
-          fi
-
-      - name: 📤 Upload All Results
-        if: always()
+      # 6. Mengunggah file video untuk di-download
+      - name: 6. Upload Video Artifacts
+        if: success() 
         uses: actions/upload-artifact@v4
         with:
-          name: auto-generated-videos
-          path: |
-            *.mp4
-            *.py
-            *.txt
-            *.log
+          name: generated-videos
+          path: output_video_*.mp4
           retention-days: 7
-          if-no-files-found: warn
-
-      - name: 🎉 Success Notification
-        if: always()
-        run: |
-          mp4_count=$(ls *.mp4 2>/dev/null | wc -l || echo 0)
-          echo "================================"
-          echo "🎬 AUTO VIDEO GENERATION COMPLETE"
-          echo "================================"
-          echo "📹 Videos generated: $mp4_count"
-          echo "🚀 Auto-trigger: WORKING"
-          echo "📦 Artifacts: auto-generated-videos"
-          echo "================================"
