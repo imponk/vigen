@@ -1,20 +1,13 @@
-# ==========================================================
-# ✅ VIDEO GENERATOR FINAL V9
-# Urutan: Upper → (pause) → Judul → (pause) → Subjudul → (pause) → Isi
-# Wipe kiri→kanan satu blok; highlight solid hanya pada [[...]]
-# ==========================================================
-from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips, VideoClip
+from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips
+from moviepy.video.VideoClip import VideoClip
 from PIL import Image, ImageDraw, ImageFont
-import numpy as np
-import os, re, sys
+import numpy as np, os, math, re
 
-# ---------- KONFIG ----------
-VIDEO_SIZE = (720, 1280)  # (W, H)
+# Konfigurasi dasar
+VIDEO_SIZE = (720, 1280)
 BG_COLOR = (0, 0, 0)
 TEXT_COLOR = (255, 255, 255, 255)
-HIGHLIGHT_COLOR = (0, 124, 188, 255)  # solid 100%
-FPS = 60
-OVERLAY_FILE = "semangat.png"
+FPS = 24
 
 FONTS = {
     "upper": "ProximaNova-Bold.ttf",
@@ -23,355 +16,492 @@ FONTS = {
     "isi": "Poppins-Bold.ttf",
 }
 
-# Timing (detik)
-PAUSE_BETWEEN = 0.40        # jeda kecil antar segmen
-DUR_UPPER = 1.60            # durasi wipe Upper (singkat)
-DUR_JUDUL = 2.20            # durasi wipe Judul (lebih elegan)
-DUR_SUBJUDUL = 1.80         # durasi wipe Subjudul
-DUR_ISI_SWEEP = 1.00        # durasi sapu cepat Isi (wipe), sisanya hold sesuai panjang
-MIN_ISI_TOTAL = 3.0         # total durasi minimal tiap blok isi (sweep + hold)
-MAX_ISI_TOTAL = 14.0
+OVERLAY_FILE = "semangat.png"
 
-# ---------- UTIL ----------
-def load_font_safe(path, size):
-    try:
-        return ImageFont.truetype(path, size)
-    except Exception:
-        print(f"⚠️ Font gagal dimuat: {path} → fallback default")
-        return ImageFont.load_default()
+# 🔥 Tambahan Konfigurasi Highlight (MINIMAL)
+HIGHLIGHT_COLOR = (0, 124, 188, 255) # Warna biru muda
+HIGHLIGHT_SPEED = 2.0 # Kecepatan swipe dalam detik
+ISILINE_PADDING = 5 # Jarak vertikal antar baris
 
-def ease_sweep(t: float):
-    # Easing mirip “mask reveal” halus (lambat di awal/akhir, cepat di tengah)
-    t = max(0.0, min(1.0, t))
-    return 1 - pow(1 - pow(t, 1.5), 3)
+# ===============================
+#   DURASI & TEKS PEMBANTU
+# ===============================
 
-# ==========================================================
-# TEXT PROCESSOR
-# ==========================================================
-class StableTextProcessor:
-    def __init__(self, font, max_width, margin_x=72):
-        self.font = font
-        self.max_width = max_width
-        self.margin_x = margin_x
-        self.margin_right = 90
-        self.line_height = self._get_line_height()
-
-    def _get_line_height(self):
-        try:
-            bbox = self.font.getbbox("Hgypq")
-            return max(bbox[3] - bbox[1] + 10, 34)
-        except Exception:
-            return 42
-
-    def _get_text_width(self, text):
-        try:
-            return self.font.getlength(text)
-        except Exception:
-            return len(text) * 15  # fallback kira-kira
-
-    def parse_text_with_highlights(self, text):
-        # Segmentasi: [[...]] = highlight, lainnya biasa. | diubah spasi.
-        parts = re.split(r'(\[\[.*?\]\])', text)
-        segs = []
-        for p in parts:
-            if p.startswith('[[') and p.endswith(']]'):
-                segs.append({'text': p[2:-2].replace('|', ' '), 'is_highlight': True})
-            elif p.strip():
-                segs.append({'text': p.replace('|', ' '), 'is_highlight': False})
-        return segs or [{'text': text, 'is_highlight': False}]
-
-    def smart_wrap_with_highlights(self, text):
-        segs = self.parse_text_with_highlights(text)
-        words = []
-        for s in segs:
-            chunk = s['text'].split()
-            for w in chunk:
-                words.append({'word': w, 'is_highlight': s['is_highlight']})
-
-        lines, cur, cur_w = [], [], 0
-        avail = self.max_width - self.margin_x - self.margin_right
-        for wi in words:
-            wlen = self._get_text_width(wi['word'] + " ")
-            if cur_w + wlen <= avail:
-                cur.append(wi); cur_w += wlen
-            else:
-                lines.append(cur); cur, cur_w = [wi], wlen
-        if cur:
-            lines.append(cur)
-        return lines
-
-    # ---------- BANGUN PETA KOORDINAT (untuk wipe global & highlight per segmen) ----------
-    def layout_lines(self, lines, base_y):
-        """
-        return:
-          - line_rects: [(x0, x1, y0, y1), ...] per baris
-          - word_rects: [{'x0','x1','y0','y1','is_highlight'}, ...] dalam urutan teks
-          - block_bbox: (min_x, max_x, min_y, max_y) mencakup semua baris
-        """
-        line_rects, word_rects = [], []
-        y = base_y
-        min_x = None
-        max_x = None
-        for line in lines:
-            x = self.margin_x
-            line_x0 = x
-            for w in line:
-                width = int(self._get_text_width(w['word'] + " "))
-                word_rects.append({
-                    'x0': x, 'x1': x + width,
-                    'y0': y, 'y1': y + self.line_height,
-                    'is_highlight': w['is_highlight']
-                })
-                x += width
-            line_x1 = x
-            line_rects.append((line_x0, line_x1, y, y + self.line_height))
-            min_x = line_x0 if min_x is None else min(min_x, line_x0)
-            max_x = line_x1 if max_x is None else max(max_x, line_x1)
-            y += self.line_height
-        min_y = base_y
-        max_y = y
-        block_bbox = (min_x or self.margin_x, max_x or self.margin_x, min_y, max_y)
-        return line_rects, word_rects, block_bbox
-
-    # ---------- RENDER: WIPE GLOBAL + HIGHLIGHT SEGMENTED ----------
-    def render_block_with_global_wipe(self, text, progress, base_y,
-                                      draw_highlight=True, solid_block=False):
-        """
-        - Global sweep: posisi batas X = block_x0 + progress * total_width.
-        - Jika draw_highlight=True: gambar blok biru solid hanya di area kata yang ditandai,
-          namun dibatasi oleh sweep (ikut mask sapuan).
-        - Jika solid_block=True: isi seluruh area baris yang sudah tersapu dengan blok biru penuh (jarang dipakai).
-        """
-        lines = self.smart_wrap_with_highlights(text)
-        base = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
-        hl_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
-        txt_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
-        hld = ImageDraw.Draw(hl_layer)
-        td = ImageDraw.Draw(txt_layer)
-
-        # Susun koordinat
-        line_rects, word_rects, (bx0, bx1, by0, by1) = self.layout_lines(lines, base_y)
-        total_w = max(1, bx1 - bx0)
-        sweep_x = bx0 + int(total_w * ease_sweep(progress))
-
-        # 1) Gambar highlight per-kata yang ditandai, dibatasi sweep
-        if draw_highlight:
-            for wr in word_rects:
-                if wr['is_highlight']:
-                    x0 = max(wr['x0'] - 3, bx0 - 3)
-                    x1 = min(wr['x1'], sweep_x)
-                    if x1 > x0:
-                        hld.rectangle([x0, wr['y0'] + 4, x1, wr['y1'] + 4], fill=HIGHLIGHT_COLOR)
-
-        # (opsional) blok solid penuh di area tersapu — TIDAK dipakai default
-        if solid_block:
-            x0 = bx0 - 4
-            x1 = sweep_x
-            if x1 > x0:
-                hld.rectangle([x0, by0 - 4, x1, by1 + 4], fill=HIGHLIGHT_COLOR)
-
-        # 2) Gambar teks penuh → lalu mask dengan sweep global
-        for wr in word_rects:
-            td.text((wr['x0'], wr['y0']), " ", font=self.font, fill=TEXT_COLOR)  # spacer (tak wajib)
-        for line in lines:
-            x = self.margin_x
-            for w in line:
-                td.text((x, line_rects[lines.index(line)][2]), w['word'] + " ", font=self.font, fill=TEXT_COLOR)
-                x += int(self._get_text_width(w['word'] + " "))
-
-        # Mask global untuk teks: hanya bagian tersapu yang terlihat
-        mask = Image.new("L", VIDEO_SIZE, 0)
-        mdraw = ImageDraw.Draw(mask)
-        mdraw.rectangle([bx0 - 2, by0 - 6, sweep_x + 2, by1 + 6], fill=255)
-        txt_visible = Image.composite(txt_layer, Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0)), mask)
-
-        frame = Image.alpha_composite(Image.alpha_composite(base, hl_layer), txt_visible).convert("RGB")
-        return np.array(frame)
-
-# ==========================================================
-# LAYOUT + VIDEO GENERATORS
-# ==========================================================
-def build_block_clip(text, font_path, size, base_y_ratio, dur_wipe, *,
-                     draw_highlight=True, solid_block=False, hold_extra=0.0, is_isi=False):
-    """
-    - dur_wipe: durasi sapuan (detik)
-    - draw_highlight: True → highlight hanya untuk [[...]], ikut sweep
-    - solid_block: True → block biru penuh area tersapu (umumnya False sesuai permintaan)
-    - hold_extra: waktu tambahan menahan tampilan setelah sapuan selesai
-    - is_isi: bila True → durasi total disesuaikan panjang teks (sweep + hold otomatis)
-    """
-    font = load_font_safe(font_path, size)
-    proc = StableTextProcessor(font, VIDEO_SIZE[0], margin_x=72)
-
-    # Tempatkan:
-    if is_isi:
-        base_y = int(VIDEO_SIZE[1] * 0.60)
+def durasi_otomatis(teks, min_dur=3.5):
+    if not teks:
+        return min_dur
+    # 🔥 Modifikasi 1/3: Bersihkan markup highlight untuk hitungan kata
+    cleaned_text = re.sub(r'\[\[.*?\]\]', lambda m: m.group(0)[2:-2], teks)
+    kata = len(cleaned_text.split())
+    if kata <= 15:
+        durasi = 4
+    elif kata <= 30:
+        durasi = 5.5
+    elif kata <= 50:
+        durasi = 7
     else:
-        # Upper/Title/Subjudul sedikit lebih atas agar komposisi nyaman
-        base_y = int(VIDEO_SIZE[1] * (0.34 if font_path == FONTS['judul'] else (0.42 if font_path == FONTS['subjudul'] else 0.28)))
+        durasi = 8
+    return max(min_dur, round(durasi, 1))
 
-    # durasi total
-    if is_isi:
-        words = len(re.sub(r'\[\[.*?\]\]', lambda m: m.group(0)[2:-2], text).split())
-        hold_auto = max(0.0, min(MAX_ISI_TOTAL - dur_wipe, words / 16.0))
-        dur_total = max(MIN_ISI_TOTAL, dur_wipe + hold_auto)
-    else:
-        dur_total = dur_wipe + max(0.0, hold_extra)
+def durasi_judul(judul, subjudul):
+    panjang = len((judul or "").split()) + len((subjudul or "").split())
+    if panjang <= 8: return 2.5
+    elif panjang <= 14: return 3.0
+    elif panjang <= 22: return 3.5
+    return 4.0
 
-    def make_frame(t):
-        if t <= dur_wipe:
-            p = ease_sweep(t / dur_wipe)
-        else:
-            p = 1.0
-        return proc.render_block_with_global_wipe(
-            text, p, base_y,
-            draw_highlight=draw_highlight,
-            solid_block=solid_block
-        )
-
-    return VideoClip(make_frame, duration=dur_total).set_fps(FPS)
-
-def pause_clip(dur=PAUSE_BETWEEN):
-    return ImageClip(np.zeros((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), np.uint8), duration=dur)
-
-# ==========================================================
-# PARSER MULTI-BARIS (Upper/Judul/Subjudul/Isi)
-# ==========================================================
-def baca_semua_berita_stable(filename):
-    try:
-        with open(filename, 'r', encoding='utf-8') as f:
-            lines = f.read().splitlines()
-
-        data, current, key, isi_count, buf = [], {}, None, 1, []
-
-        def commit():
-            nonlocal buf, key, current
-            if key is not None and buf:
-                joined = " ".join(buf).strip()
-                if joined:
-                    current[key] = (current.get(key, "") + " " + joined).strip()
-            buf = []
-
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-
-            if line.startswith("Upper:"):
-                commit()
-                key = "Upper"
-                content = line.replace("Upper:", "").strip()
-                buf = [content] if content else []
-                continue
-
-            if line.startswith("Judul:"):
-                commit()
-                if current:
-                    data.append(current)
-                    current, isi_count = {}, 1
-                key = "Judul"
-                content = line.replace("Judul:", "").strip()
-                buf = [content] if content else []
-                continue
-
-            if line.startswith("Subjudul:"):
-                commit()
-                key = "Subjudul"
-                content = line.replace("Subjudul:", "").strip()
-                buf = [content] if content else []
-                continue
-
-            if line.startswith("Isi:"):
-                commit()
-                key = f"Isi_{isi_count}"; isi_count += 1
-                content = line.replace("Isi:", "").strip()
-                buf = [content] if content else []
-                continue
-
-            buf.append(line)
-
-        commit()
-        if current:
-            data.append(current)
-        return data
-    except Exception as e:
-        print("parse fail:", e)
-        return []
-
-# ==========================================================
-# BUILD VIDEO URUTAN SESUAI CONTOH
-# ==========================================================
-def buat_video_stable(data):
-    clips = []
-
-    upper = data.get('Upper', '').strip()
-    judul = data.get('Judul', '').strip()
-    subjudul = data.get('Subjudul', '').strip()
-
-    # 1) Upper (jika ada)
-    if upper:
-        clips.append(build_block_clip(upper, FONTS['upper'], 28, base_y_ratio=0.28,
-                                      dur_wipe=DUR_UPPER, draw_highlight=False, hold_extra=0.2))
-        clips.append(pause_clip())
-
-    # 2) Judul
-    if judul:
-        clips.append(build_block_clip(judul, FONTS['judul'], 56, base_y_ratio=0.34,
-                                      dur_wipe=DUR_JUDUL, draw_highlight=False, hold_extra=0.20))
-        clips.append(pause_clip())
-
-    # 3) Subjudul
-    if subjudul:
-        clips.append(build_block_clip(subjudul, FONTS['subjudul'], 36, base_y_ratio=0.42,
-                                      dur_wipe=DUR_SUBJUDUL, draw_highlight=False, hold_extra=0.20))
-        clips.append(pause_clip())
-
-    # 4) Isi (bisa banyak paragraf) — sapuan cepat 1 detik, highlight hanya [[...]]
-    isi_keys = sorted([k for k in data if k.startswith('Isi_')])
-    for k in isi_keys:
-        txt = data[k].strip()
-        if not txt:
+def smart_wrap(text, font, max_width, margin_left=70, margin_right=90):
+    """
+    🔥 Modifikasi 2/3: Menambahkan perlindungan markup [[...]] agar tidak terpotong
+    dan dapat di-render oleh fungsi highlight.
+    """
+    if not text: return ""
+    paragraphs = text.split("\n")
+    raw_lines = []
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            raw_lines.append("")
             continue
-        clips.append(build_block_clip(txt, FONTS['isi'], 34, base_y_ratio=0.60,
-                                      dur_wipe=DUR_ISI_SWEEP, draw_highlight=True,
-                                      solid_block=False, is_isi=True))
-        clips.append(pause_clip(0.25))  # jeda antar isi sedikit lebih pendek
+            
+        # 🔥 V61 FIX: Lindungi markup highlight dari pemotongan wrap dengan placeholder '|'
+        protected_para = re.sub(r'(\[\[.*?\]\])', lambda m: m.group(1).replace(' ', '|'), para)
+        words = protected_para.split()
+        line = ""
+        for word in words:
+            test_line = line + word + " "
+            try:
+                # Gunakan teks yang sudah dibersihkan dari placeholder '|' untuk menghitung lebar
+                dummy_img = Image.new("RGBA", (1, 1))
+                draw = ImageDraw.Draw(dummy_img)
+                bbox = draw.textbbox((0, 0), test_line.replace('|', ' '), font=font)
+                test_width = bbox[2] - bbox[0]
+            except Exception: # Fallback jika font.getbbox bermasalah
+                test_width = 1000 
+                
+            if test_width + margin_left + margin_right > max_width:
+                raw_lines.append(line.strip())
+                line = word + " "
+            else:
+                line = test_line
+        if line: raw_lines.append(line.strip())
 
-    # Gabung
-    if not clips:
-        final = ImageClip(np.zeros((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), np.uint8), duration=2)
-    else:
-        final = concatenate_videoclips(clips, method="compose")
+    cleaned_lines = []
+    for i in range(len(raw_lines)):
+        current_line = raw_lines[i]
+        
+        # Kembalikan placeholder '|' menjadi ' ' untuk proses pemotongan terakhir
+        current_line = current_line.replace('|', ' ')
+        
+        if i == len(raw_lines) - 1:
+            cleaned_lines.append(current_line)
+            break
+        current_line_words = current_line.split()
+        if not current_line_words:
+            cleaned_lines.append(current_line)
+            continue
+            
+        last_word = current_line_words[-1]
+        
+        if last_word.lower() in ['rp', 'ke', 'di']:
+            line_without_last_word = " ".join(current_line_words[:-1])
+            cleaned_lines.append(line_without_last_word)
+            if i + 1 < len(raw_lines):
+                # NOTE: Kata yang dipindah harus dilindungi kembali agar tidak diubah oleh .replace('|',' ') di baris berikutnya
+                word_to_move = re.sub(r'(\[\[.*?\]\])', lambda m: m.group(1).replace(' ', '|'), last_word)
+                raw_lines[i+1] = word_to_move + " " + raw_lines[i+1]
+        else:
+            cleaned_lines.append(current_line)
+            
+    return "\n".join(cleaned_lines)
 
-    # Overlay (opsional)
-    if os.path.exists(OVERLAY_FILE):
-        try:
-            overlay = ImageClip(
-                np.array(Image.open(OVERLAY_FILE).convert("RGBA").resize(VIDEO_SIZE)),
-                duration=final.duration
-            )
-            return CompositeVideoClip([final, overlay], size=VIDEO_SIZE)
-        except Exception as e:
-            print("overlay fail:", e)
-            return final
-    return final
 
-# ==========================================================
-# MAIN
-# ==========================================================
+# ===============================
+#   UTILITAS FRAME
+# ===============================
+
+def make_text_frame(base_img, text, font, pos, alpha=255):
+    draw = ImageDraw.Draw(base_img)
+    fill = (TEXT_COLOR[0], TEXT_COLOR[1], TEXT_COLOR[2], alpha)
+    # FIX: Ganti spacing=4 dengan ISILINE_PADDING-1 agar konsisten dengan highlight
+    draw.multiline_text(pos, text, font=font, fill=fill, align="left", spacing=4)
+
+# 🔥 Tambahkan Fungsi Highlight Baru (Minimal Perubahan)
+def make_text_and_highlight_frame(font,text,pos,frame_idx,total_frames):
+    """
+    Fungsi baru untuk render teks isi dengan highlight geser (Termasuk Perbaikan V61).
+    """
+    margin_x,y=pos
+    hl=Image.new("RGBA",VIDEO_SIZE,(0,0,0,0))
+    tx=Image.new("RGBA",VIDEO_SIZE,(0,0,0,0))
+    dhl,dt=ImageDraw.Draw(hl),ImageDraw.Draw(tx)
+    
+    # Hitung tinggi baris (lh)
+    try: 
+        lh_text = max(font.getbbox("A")[3] - font.getbbox("A")[1], font.getsize("A")[1])
+        lh = lh_text + ISILINE_PADDING 
+    except: 
+        lh = 30 + ISILINE_PADDING
+    
+    # 🔥 V61 FIX: Geser kotak highlight ke bawah 6 piksel
+    HIGHLIGHT_TOP_OFFSET = 3 + 6      # Posisi Y atas kotak
+    HIGHLIGHT_BOTTOM_OFFSET = lh - 2 + 6 # Posisi Y bawah kotak
+
+    swipe=int(FPS*HIGHLIGHT_SPEED)
+    for line in text.split("\n"):
+        parts=re.split(r"(\[\[.*?\]\])",line)
+        cx=margin_x
+        for p in parts:
+            if not p: continue
+            if p.startswith("[[") and p.endswith("]]"):
+                # Bagian yang di-highlight
+                w=p[2:-2].replace('|', ' ') # Kembalikan placeholder '|' menjadi ' '
+                
+                try: 
+                    dummy_img = Image.new("RGBA", (1, 1))
+                    draw = ImageDraw.Draw(dummy_img)
+                    bbox = draw.textbbox((0, 0), w, font=font)
+                    ww = bbox[2] - bbox[0]
+                except: ww=len(w)*20
+                
+                prog=min(1.0,frame_idx/float(swipe)); xs=cx+ww*(1-prog)
+                
+                # Render kotak highlight
+                dhl.rectangle([
+                    xs-4, 
+                    y + HIGHLIGHT_TOP_OFFSET, 
+                    cx+ww+4, 
+                    y + HIGHLIGHT_BOTTOM_OFFSET
+                ],fill=HIGHLIGHT_COLOR)
+                
+                dt.text((cx,y),w,font=font,fill=TEXT_COLOR); cx+=ww+4
+            else:
+                # Bagian teks biasa
+                p_clean = p.replace('|', ' ')
+                try: 
+                    dummy_img = Image.new("RGBA", (1, 1))
+                    draw = ImageDraw.Draw(dummy_img)
+                    bbox = draw.textbbox((0, 0), p_clean, font=font)
+                    width_text = bbox[2] - bbox[0]
+                    dt.text((cx,y),p_clean,font=font,fill=TEXT_COLOR); cx+=width_text
+                except: 
+                    dt.text((cx,y),p_clean,font=font,fill=TEXT_COLOR); cx+=len(p_clean)*20
+        y+=lh
+    return hl,tx
+
+def ease_out(t):  
+    return 1 - pow(1 - t, 3)
+
+def render_wipe_layer(layer, t):
+    if t <= 0: return Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
+    t_eased = ease_out(t)
+    width = int(VIDEO_SIZE[0] * t_eased)
+    mask = Image.new("L", VIDEO_SIZE, 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rectangle([0, 0, width, VIDEO_SIZE[1]], fill=255)
+    return Image.composite(layer, Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0)), mask)
+
+# ===============================
+#   STREAMING RENDER CLIPS
+# ===============================
+
+def make_clip_from_generator(frame_generator, duration):
+# ... (Fungsi ini tetap sama) ...
+    def make_frame(t):
+        i = int(t * FPS)
+        return frame_generator(i)
+    return VideoClip(make_frame, duration=duration)
+
+def render_opening(judul_txt, subjudul_txt, fonts, upper_txt=None):
+# ... (Fungsi ini tetap sama) ...
+    dur = durasi_judul(judul_txt, subjudul_txt)
+    total_frames = int(FPS * dur)
+    static_frames = int(FPS * 0.2)
+    fade_frames = int(FPS * 0.8)
+    margin_x = 70
+    margin_bawah_logo = 170
+    batas_bawah_aman = VIDEO_SIZE[1] - margin_bawah_logo
+
+    dummy_img = Image.new("RGBA", (1, 1))
+    draw = ImageDraw.Draw(dummy_img)
+    upper_font_size = 28
+    judul_font_size = 60
+    sub_font_size = 28
+    spacing_upper_judul = 12
+    spacing_judul_sub = 19
+
+    def calculate_layout(current_judul_font_size):
+        font_upper = ImageFont.truetype(fonts["upper"], upper_font_size) if upper_txt else None
+        font_judul = ImageFont.truetype(fonts["judul"], current_judul_font_size) if judul_txt else None
+        font_sub = ImageFont.truetype(fonts["subjudul"], sub_font_size) if subjudul_txt else None
+        if not font_judul:
+            font_judul = ImageFont.truetype(fonts["judul"], current_judul_font_size)
+
+        wrapped_upper = smart_wrap(upper_txt, font_upper, VIDEO_SIZE[0]) if font_upper and upper_txt else None
+        wrapped_judul = smart_wrap(judul_txt, font_judul, VIDEO_SIZE[0]) if font_judul and judul_txt else ""
+        wrapped_sub = smart_wrap(subjudul_txt, font_sub, VIDEO_SIZE[0]) if font_sub and subjudul_txt else None
+
+        upper_h = judul_h = sub_h = 0
+        if wrapped_upper:
+            # FIX: replace('|', ' ') untuk memastikan perhitungan layout yang akurat
+            upper_bbox = draw.multiline_textbbox((0, 0), wrapped_upper.replace('|', ' '), font=font_upper, spacing=4)
+            upper_h = upper_bbox[3] - upper_bbox[1]
+        if wrapped_judul:
+            judul_bbox = draw.multiline_textbbox((0, 0), wrapped_judul.replace('|', ' '), font=font_judul, spacing=4)
+            judul_h = judul_bbox[3] - judul_bbox[1]
+        if wrapped_sub:
+            sub_bbox = draw.multiline_textbbox((0, 0), wrapped_sub.replace('|', ' '), font=font_sub, spacing=4)
+            sub_h = sub_bbox[3] - sub_bbox[1]
+
+        y_start = int(VIDEO_SIZE[1] * 0.60)
+        current_y = y_start
+        y_upper = y_judul = y_sub = None
+        bottom_y = y_start
+
+        if wrapped_upper:
+            y_upper = current_y
+            upper_bbox = draw.multiline_textbbox((margin_x, y_upper), wrapped_upper.replace('|', ' '), font=font_upper, spacing=4)
+            current_y = upper_bbox[3] + spacing_upper_judul
+            bottom_y = upper_bbox[3]
+
+        y_judul = current_y
+        if wrapped_judul:
+            judul_bbox = draw.multiline_textbbox((margin_x, y_judul), wrapped_judul.replace('|', ' '), font=font_judul, spacing=4)
+            bottom_y = judul_bbox[3]
+            current_y = judul_bbox[3] + spacing_judul_sub
+
+        if wrapped_sub:
+            y_sub = current_y
+            sub_bbox = draw.multiline_textbbox((margin_x, y_sub), wrapped_sub.replace('|', ' '), font=font_sub, spacing=4)
+            bottom_y = sub_bbox[3]
+
+        return {
+            "font_upper": font_upper, "font_judul": font_judul, "font_sub": font_sub,
+            "wrapped_upper": wrapped_upper.replace('|', ' ') if wrapped_upper else None, # Ganti kembali placeholder
+            "wrapped_judul": wrapped_judul.replace('|', ' '), 
+            "wrapped_sub": wrapped_sub.replace('|', ' ') if wrapped_sub else None, # Ganti kembali placeholder
+            "y_upper": y_upper, "y_judul": y_judul, "y_sub": y_sub, "bottom_y": bottom_y
+        }
+
+    layout = calculate_layout(judul_font_size)
+    if layout["bottom_y"] > batas_bawah_aman:
+        layout = calculate_layout(int(judul_font_size * 0.94))
+
+    # 🔧 Tambahan patch: jika masih terlalu rendah, geser ke atas
+    if layout["bottom_y"] > batas_bawah_aman:
+        kelebihan = layout["bottom_y"] - batas_bawah_aman
+        offset = min(kelebihan + 20, 150)
+        for key in ["y_upper", "y_judul", "y_sub"]:
+            if layout[key] is not None:
+                layout[key] -= offset
+
+    def frame_generator(i):
+        if i < static_frames:
+            t = 1.0
+            anim = False
+        elif i < static_frames + fade_frames:
+            t = (i - static_frames) / float(fade_frames)
+            anim = True
+        else:
+            t = 1.0
+            anim = False
+
+        frame = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
+        layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
+        if layout["wrapped_upper"] and layout["y_upper"] is not None:
+            make_text_frame(layer, layout["wrapped_upper"], layout["font_upper"], (margin_x, layout["y_upper"]))
+        if layout["wrapped_judul"] and layout["y_judul"] is not None:
+            make_text_frame(layer, layout["wrapped_judul"], layout["font_judul"], (margin_x, layout["y_judul"]))
+        if layout["wrapped_sub"] and layout["y_sub"] is not None:
+            make_text_frame(layer, layout["wrapped_sub"], layout["font_sub"], (margin_x, layout["y_sub"]))
+        visible = render_wipe_layer(layer, t) if anim else layer
+        return np.array(Image.alpha_composite(frame, visible).convert("RGB"))
+
+    return make_clip_from_generator(frame_generator, dur)
+
+def render_text_block(text, font_path, font_size, dur, anim=True):
+    total_frames = int(FPS * dur)
+    fade_frames = min(18, total_frames)
+    margin_x = 70
+    base_y = int(VIDEO_SIZE[1] * 0.60)
+    margin_bawah_logo = 170
+    batas_bawah_aman = VIDEO_SIZE[1] - margin_bawah_logo
+
+    dummy_img = Image.new("RGBA", (1, 1))
+    draw = ImageDraw.Draw(dummy_img)
+    font = ImageFont.truetype(font_path, font_size)
+    wrapped = smart_wrap(text, font, VIDEO_SIZE[0])
+    
+    # 🔥 Modifikasi 3/3: Menggunakan ISILINE_PADDING-2 dan .replace('|', ' ')
+    text_bbox = draw.multiline_textbbox((0, 0), wrapped.replace('|', ' '), font=font, spacing=ISILINE_PADDING-2)
+    text_height = text_bbox[3] - text_bbox[1]
+    bottom_y = base_y + text_height
+    if bottom_y > batas_bawah_aman:
+        font_size_new = max(30, int(font_size * 0.94))
+        font = ImageFont.truetype(font_path, font_size_new)
+        wrapped = smart_wrap(text, font, VIDEO_SIZE[0])
+        # FIX: Menggunakan ISILINE_PADDING-2 dan .replace('|', ' ')
+        text_bbox = draw.multiline_textbbox((0, 0), wrapped.replace('|', ' '), font=font, spacing=ISILINE_PADDING-2)
+        text_height = text_bbox[3] - text_bbox[1]
+        bottom_y = base_y + text_height
+    y_pos = base_y if bottom_y <= batas_bawah_aman else base_y - min(bottom_y - batas_bawah_aman + 10, 220)
+
+    def frame_generator(i):
+        t = 1.0 if not anim else min(1.0, i / float(fade_frames))
+        frame = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
+        
+        # 🔥 GANTI LOGIKA LAMA: Menggunakan fungsi highlight baru
+        hl, txt = make_text_and_highlight_frame(font, wrapped, (margin_x, y_pos), i, total_frames)
+        vis = render_wipe_layer(txt, t)
+        
+        # Gabungkan semua layer: background, highlight, dan teks yang di-wipe
+        comb = Image.alpha_composite(frame, hl)
+        comb = Image.alpha_composite(comb, vis)
+        
+        return np.array(comb.convert("RGB"))
+
+    return make_clip_from_generator(frame_generator, dur)
+
+def render_penutup(dur=3.0):
+# ... (Fungsi ini tetap sama) ...
+    def frame_generator(i):
+        return np.array(Image.new("RGB", VIDEO_SIZE, BG_COLOR))
+    return make_clip_from_generator(frame_generator, dur)
+
+# ===============================
+#   OVERLAY, INPUT, OUTPUT
+# ===============================
+
+def add_overlay(base_clip):
+# ... (Fungsi ini tetap sama) ...
+    if not os.path.exists(OVERLAY_FILE): return base_clip
+    try:
+        overlay_pil = Image.open(OVERLAY_FILE).convert("RGBA")
+    except Exception as e:
+        print(f"❌ Error loading overlay '{OVERLAY_FILE}': {e}")
+        return base_clip
+    overlay_pil_resized = overlay_pil.resize(VIDEO_SIZE, Image.LANCZOS)
+    overlay_clip = ImageClip(np.array(overlay_pil_resized), duration=base_clip.duration)
+    return CompositeVideoClip([base_clip, overlay_clip.set_pos((0, 0))], size=VIDEO_SIZE)
+
+def baca_semua_berita(file_path):
+# ... (Fungsi ini tetap sama) ...
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except FileNotFoundError:
+        print(f"❌ File '{file_path}' tidak ditemukan!")
+        exit(1)
+    except Exception as e:
+        print(f"❌ Error reading file '{file_path}': {e}")
+        exit(1)
+
+    blok_berita = content.strip().split("---")
+    semua_data = []
+    known_keys = ["upper:", "judul:", "subjudul:"]
+
+    for blok in blok_berita:
+        lines = blok.strip().splitlines()
+        data = {}
+        isi_raw_start_index = -1
+        i = 0
+        last_processed_header_line = -1
+
+        while i < len(lines):
+            line = lines[i].strip()
+            lower_line = line.lower() if line else ""
+            is_potential_isi = line and last_processed_header_line != -1 and not any(lower_line.startswith(k) for k in known_keys)
+            is_potential_isi_only = line and last_processed_header_line == -1 and not any(lower_line.startswith(k) for k in known_keys)
+            if is_potential_isi or is_potential_isi_only:
+                isi_raw_start_index = i
+                break
+            current_key = None
+            if lower_line.startswith("upper:"):
+                current_key = "Upper"
+                value_part = line.split(":", 1)[1].strip()
+            elif lower_line.startswith("judul:"):
+                current_key = "Judul"
+                value_part = line.split(":", 1)[1].strip()
+            elif lower_line.startswith("subjudul:"):
+                current_key = "Subjudul"
+                value_part = line.split(":", 1)[1].strip()
+            else:
+                i += 1
+                continue
+
+            key_lines = [value_part] if value_part else []
+            i += 1
+            while i < len(lines):
+                next_line = lines[i].strip()
+                if any(next_line.lower().startswith(k) for k in known_keys): break
+                if not next_line and key_lines:
+                    isi_raw_start_index = i
+                    break
+                if next_line: key_lines.append(next_line)
+                i += 1
+
+            data[current_key] = "\n".join(key_lines)
+            last_processed_header_line = i - 1
+
+        if isi_raw_start_index != -1:
+            isi_raw = lines[isi_raw_start_index:]
+            isi_text = "\n".join(isi_raw).strip()
+            paragraf_list = [p.strip() for p in isi_text.split("\n\n") if p.strip()]
+            for idx, p in enumerate(paragraf_list, start=1):
+                data[f"Isi_{idx}"] = p
+        if data:
+            semua_data.append(data)
+    return semua_data
+
+def buat_video(data, index=None):
+# ... (Fungsi ini tetap sama) ...
+    judul = data.get("Judul", "")
+    print(f"▶ Membuat video: {judul}")
+    try:
+        opening = render_opening(
+            judul, data.get("Subjudul", None), FONTS,
+            upper_txt=data.get("Upper", None)
+        )
+        isi_clips = []
+        isi_data = [f"Isi_{i}" for i in range(1, 30) if f"Isi_{i}" in data and data[f"Isi_{i}"].strip()]
+        jeda = render_penutup(0.7)
+        for idx, key in enumerate(isi_data):
+            teks = data[key]
+            dur = durasi_otomatis(teks)
+            clip = render_text_block(teks, FONTS["isi"], 34, dur)
+            isi_clips.append(clip)
+            if idx < len(isi_data) - 1:
+                isi_clips.append(jeda)
+        penutup = render_penutup(4.0)
+        final = concatenate_videoclips([opening] + isi_clips + [penutup], method="compose")
+        result = add_overlay(final)
+        filename = f"output_video_{index+1 if index is not None else '1'}.mp4"
+        result.write_videofile(filename, fps=FPS, codec="libx264", audio=False, logger=None, threads=4)
+        print(f"✅ Video selesai: {filename}\n")
+    except Exception as e:
+        print(f"❌ Gagal membuat video untuk '{judul}': {e}")
+
+# ===============================
+#   MAIN PROGRAM
+# ===============================
+
 if __name__ == "__main__":
-    if not os.path.exists("data_berita.txt"):
-        print("❌ File data_berita.txt tidak ditemukan!")
-        sys.exit(1)
+# ... (Fungsi ini tetap sama) ...
+    FILE_INPUT = "data_berita.txt"
+    font_files_ok = True
+    for key, font_file in FONTS.items():
+        if not os.path.exists(font_file):
+            print(f"❌ File Font '{font_file}' untuk '{key}' tidak ditemukan!")
+            font_files_ok = False
+    if not font_files_ok:
+        exit(1)
 
-    berita_list = baca_semua_berita_stable("data_berita.txt")
-    if not berita_list:
-        print("❌ Tidak ada berita valid dalam data_berita.txt")
-        sys.exit(1)
+    semua = baca_semua_berita(FILE_INPUT)
+    if not semua:
+        print(f"❌ Tidak ada data berita yang valid di '{FILE_INPUT}'.")
+        exit(1)
 
-    for i, b in enumerate(berita_list, 1):
-        print(f"🎬 Render {i}: {b.get('Judul','(Tanpa Judul)')}")
-        clip = buat_video_stable(b)
-        out = f"output_video_{i}.mp4"
-        clip.write_videofile(out, fps=FPS)
-        print(f"✅ Selesai: {out}")
+    print(f"Total {len(semua)} video akan dibuat...")
+    for i, data in enumerate(semua):
+        buat_video(data, i)
+    print("🎬 Semua video selesai dibuat (atau dilewati jika gagal).")
