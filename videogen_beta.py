@@ -1,5 +1,5 @@
 # ==========================================================
-# ✅ VIDEO GENERATOR BETA (FIXED: multi-baris + highlight)
+# ✅ VIDEO GENERATOR BETA FINAL V2 (Highlight + Multiline Fix)
 # ==========================================================
 from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
@@ -81,9 +81,10 @@ class StableTextProcessor:
                 lines.append(cur_line)
                 cur_line = [wi]
                 cur_w = wlen
-        if cur_line: lines.append(cur_line)
+        if cur_line:
+            lines.append(cur_line)
         return lines
-        
+
     def render_lines_with_continuous_highlight(self, lines, base_y, frame_idx, total_frames):
         base = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
         hl_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
@@ -91,10 +92,11 @@ class StableTextProcessor:
         hld = ImageDraw.Draw(hl_layer)
         td = ImageDraw.Draw(txt_layer)
 
-        progress = min(1.0, frame_idx / max(1, total_frames * 0.25))
+        progress = frame_idx / max(1, total_frames)  # animasi halus penuh durasi
         all_segments = []
         total_chars = 0
         y = base_y
+
         for line in lines:
             x = self.margin_x
             for w in line:
@@ -117,7 +119,8 @@ class StableTextProcessor:
             if seg['start'] <= cur_chars:
                 chars = max(0, cur_chars - seg['start'])
                 L = len(seg['word'])
-                p = 1 - pow(1 - (chars / L if L else 1), 2)
+                t = chars / L if L else 1
+                p = 1 - pow(1 - t, 3)  # easing smooth
                 w = seg['width'] * min(1, p)
                 if w > 0:
                     x0 = seg['x'] - 4
@@ -149,7 +152,7 @@ def calculate_adaptive_layout(text, font_path, size, margin_x):
     font = load_font_safe(font_path, size)
     proc = StableTextProcessor(font, VIDEO_SIZE[0], margin_x)
     lines = proc.smart_wrap_with_highlights(text)
-    base_y = int(VIDEO_SIZE[1] * 0.40)  # lebih tinggi agar tidak tertutup overlay
+    base_y = int(VIDEO_SIZE[1] * 0.55)  # turun agar tidak ketabrak overlay
     total_h = len(lines) * proc.line_height
     batas_bawah = VIDEO_SIZE[1] - 180
     if base_y + total_h > batas_bawah:
@@ -172,18 +175,19 @@ def render_opening_stable(upper, judul, subjudul, fonts):
     proc = StableTextProcessor(font_j, VIDEO_SIZE[0])
     lines = proc.smart_wrap_with_highlights(judul)
     total_frames = int(FPS * 3)
-    frames = [proc.render_lines_with_continuous_highlight(lines, 500, i, total_frames)
+    frames = [proc.render_lines_with_continuous_highlight(lines, 400, i, total_frames)
               for i in range(total_frames)]
-    # subjudul
+
     if subjudul:
         font_s = load_font_safe(fonts['subjudul'], 36)
         proc2 = StableTextProcessor(font_s, VIDEO_SIZE[0])
         lines2 = proc2.smart_wrap_with_highlights(subjudul)
-        frames2 = [proc2.render_lines_with_continuous_highlight(lines2, 600, i, total_frames)
+        frames2 = [proc2.render_lines_with_continuous_highlight(lines2, 500, i, total_frames)
                    for i in range(total_frames)]
         frames = [Image.alpha_composite(Image.fromarray(f1).convert("RGBA"),
                                         Image.fromarray(f2).convert("RGBA"))
                   for f1, f2 in zip(frames, frames2)]
+
     return concatenate_videoclips([ImageClip(np.array(f), duration=1/FPS) for f in frames], method="compose")
 
 def render_separator_stable(dur=0.7):
@@ -201,7 +205,7 @@ def add_overlay(base_clip):
         return base_clip
 
 # ==========================================================
-#  PARSER MULTI-BARIS
+#  PARSER MULTI-BARIS UNTUK JUDUL/SUBJUDUL/ISI
 # ==========================================================
 def baca_semua_berita_stable(filename):
     try:
@@ -213,22 +217,27 @@ def baca_semua_berita_stable(filename):
             line = line.strip()
             if not line:
                 continue
-            if line.startswith("Judul:"):
+            if re.match(r"^Judul:.*", line):
                 if current:
                     data.append(current)
                     current, isi_count = {}, 1
+                content = line.replace("Judul:", "").strip()
                 key = "Judul"
-                current[key] = line.replace("Judul:", "").strip()
-            elif line.startswith("Subjudul:"):
+                current[key] = content
+                continue
+            if re.match(r"^Subjudul:.*", line):
+                content = line.replace("Subjudul:", "").strip()
                 key = "Subjudul"
-                current[key] = line.replace("Subjudul:", "").strip()
-            elif line.startswith("Isi:"):
+                current[key] = content
+                continue
+            if re.match(r"^Isi:.*", line):
+                content = line.replace("Isi:", "").strip()
                 key = f"Isi_{isi_count}"
-                current[key] = line.replace("Isi:", "").strip()
+                current[key] = content
                 isi_count += 1
-            else:
-                if key:
-                    current[key] = (current.get(key, "") + " " + line).strip()
+                continue
+            if key:
+                current[key] = (current.get(key, "") + " " + line).strip()
         if current:
             data.append(current)
         return data
