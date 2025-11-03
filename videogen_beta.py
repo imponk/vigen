@@ -127,67 +127,83 @@ def make_text_frame(base_img, text, font, pos, alpha=255):
     draw.multiline_text(pos, text, font=font, fill=fill, align="left", spacing=4)
 
 # 🔥 Tambahkan Fungsi Highlight Baru (Minimal Perubahan)
-def make_text_and_highlight_frame(font,text,pos,frame_idx,total_frames):
+
+def make_text_and_highlight_frame(font, text, pos, frame_idx, total_frames):
     """
     Fungsi baru untuk render teks isi dengan highlight geser (Termasuk Perbaikan V61).
     """
-    margin_x,y=pos
-    hl=Image.new("RGBA",VIDEO_SIZE,(0,0,0,0))
-    tx=Image.new("RGBA",VIDEO_SIZE,(0,0,0,0))
-    dhl,dt=ImageDraw.Draw(hl),ImageDraw.Draw(tx)
-    
-    # Hitung tinggi baris (lh)
-    try: 
-        lh_text = max(font.getbbox("A")[3] - font.getbbox("A")[1], font.getsize("A")[1])
-        lh = lh_text + ISILINE_PADDING 
-    except: 
-        lh = 30 + ISILINE_PADDING
-    
-    # 🔥 V61 FIX: Geser kotak highlight ke bawah 6 piksel
-    HIGHLIGHT_TOP_OFFSET = 3 + 6      # Posisi Y atas kotak
-    HIGHLIGHT_BOTTOM_OFFSET = lh - 2 + 6 # Posisi Y bawah kotak
+    margin_x, y = pos
+    hl = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
+    tx = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
+    dhl, dt = ImageDraw.Draw(hl), ImageDraw.Draw(tx)
 
-    swipe=int(FPS*HIGHLIGHT_SPEED)
+    # Hitung tinggi baris (lh)
+    try:
+        lh_text = max(font.getbbox("A")[3] - font.getbbox("A")[1], font.getsize("A")[1])
+        lh = lh_text + ISILINE_PADDING
+    except:
+        lh = 30 + ISILINE_PADDING
+
+    # V61 FIX: Geser kotak highlight ke bawah 6 piksel
+    HIGHLIGHT_TOP_OFFSET = 3 + 6       # Posisi Y atas kotak
+    HIGHLIGHT_BOTTOM_OFFSET = lh - 2 + 6  # Posisi Y bawah kotak
+
+    swipe = int(FPS * HIGHLIGHT_SPEED)
+
     for line in text.split("\n"):
-        parts=re.split(r"(\[\[.*?\]\])",line)
-        cx=margin_x
+        parts = re.split(r"(\[\[.*?\]\])", line)
+        cx = margin_x
+
         for p in parts:
-            if not p: continue
+            if not p:
+                continue
+
             if p.startswith("[[") and p.endswith("]]"):
                 # Bagian yang di-highlight
-                w=p[2:-2].replace('|', ' ') # Kembalikan placeholder '|' menjadi ' '
-                
-                try: 
+                w = p[2:-2].replace('|', ' ')  # Kembalikan placeholder '|' menjadi ' '
+
+                try:
                     dummy_img = Image.new("RGBA", (1, 1))
                     draw = ImageDraw.Draw(dummy_img)
                     bbox = draw.textbbox((0, 0), w, font=font)
                     ww = bbox[2] - bbox[0]
-                except: ww=len(w)*20
-                
-prog = min(1.0, frame_idx / float(swipe))
-xe = cx + int(ww * prog)
+                except:
+                    ww = len(w) * 20
 
-dhl.rectangle([
-    cx - 4,
-    y + HIGHLIGHT_TOP_OFFSET,
-    xe + 4,
-    y + HIGHLIGHT_BOTTOM_OFFSET
-], fill=HIGHLIGHT_COLOR)
-                
-                dt.text((cx,y),w,font=font,fill=TEXT_COLOR); cx+=ww+4
+                # Swipe dari kiri ke kanan
+                prog = min(1.0, frame_idx / float(swipe))
+                xe = cx + int(ww * prog)
+
+                # Render kotak highlight
+                dhl.rectangle(
+                    [
+                        cx - 4,
+                        y + HIGHLIGHT_TOP_OFFSET,
+                        xe + 4,
+                        y + HIGHLIGHT_BOTTOM_OFFSET,
+                    ],
+                    fill=HIGHLIGHT_COLOR,
+                )
+
+                dt.text((cx, y), w, font=font, fill=TEXT_COLOR)
+                cx += ww + 4
             else:
                 # Bagian teks biasa
                 p_clean = p.replace('|', ' ')
-                try: 
+                try:
                     dummy_img = Image.new("RGBA", (1, 1))
                     draw = ImageDraw.Draw(dummy_img)
                     bbox = draw.textbbox((0, 0), p_clean, font=font)
                     width_text = bbox[2] - bbox[0]
-                    dt.text((cx,y),p_clean,font=font,fill=TEXT_COLOR); cx+=width_text
-                except: 
-                    dt.text((cx,y),p_clean,font=font,fill=TEXT_COLOR); cx+=len(p_clean)*20
-        y+=lh
-    return hl,tx
+                    dt.text((cx, y), p_clean, font=font, fill=TEXT_COLOR)
+                    cx += width_text
+                except:
+                    dt.text((cx, y), p_clean, font=font, fill=TEXT_COLOR)
+                    cx += len(p_clean) * 20
+
+        y += lh
+
+    return hl, tx
 
 def ease_out(t):  
     return 1 - pow(1 - t, 3)
