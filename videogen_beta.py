@@ -14,7 +14,7 @@ import traceback
 
 # ---------- KONFIGURASI ----------
 VIDEO_SIZE = (720, 1280)
-BG_COLOR = (0, 255, 0)
+BG_COLOR = (176, 176, 176)
 TEXT_COLOR = (255, 255, 255, 255)
 FPS = 24
 
