@@ -1,6 +1,7 @@
 # ==========================================================
 # ✅ VIDEO GENERATOR - MULTILINE SMOOTH HIGHLIGHT (V2, layout meniru versi awal)
 # ==========================================================
+
 from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips, VideoClip
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
@@ -10,9 +11,10 @@ import sys
 import time
 import traceback
 
+
 # ---------- KONFIGURASI ----------
 VIDEO_SIZE = (720, 1280)
-BG_COLOR = (0, 0, 0)
+BG_COLOR = (255, 131, 67)
 TEXT_COLOR = (255, 255, 255, 255)
 FPS = 24
 
@@ -30,6 +32,7 @@ HIGHLIGHT_COLOR = (0, 124, 188, 255)
 ISILINE_PADDING = 5  # Jarak vertikal antar baris isi
 HIGHLIGHT_SPEED_FRAC = 0.35  # Bagian durasi untuk sweep highlight (lebih smooth dari 0.25)
 
+
 # ---------- UTIL: FONT AMAN ----------
 def load_font_safe(font_path, size):
     try:
@@ -45,8 +48,10 @@ def load_font_safe(font_path, size):
         except:
             return None
 
+
 def ease_out_cubic(t):
     return 1.0 - pow(1.0 - t, 3.0)
+
 
 # ---------- TEXT PROCESSOR DENGAN HIGHLIGHT ----------
 class StableTextProcessor:
@@ -280,6 +285,7 @@ class StableTextProcessor:
             print(f"⚠️ Render error: {e}")
             return np.zeros((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), dtype=np.uint8)
 
+
 # ---------- OPENING (LAYOUT MENIRU VERSI AWAL) ----------
 def durasi_judul_awal(upper, judul, subjudul):
     panjang = len((upper or "").split()) + len((judul or "").split()) + len((subjudul or "").split())
@@ -287,6 +293,7 @@ def durasi_judul_awal(upper, judul, subjudul):
     elif panjang <= 14: return 3.0
     elif panjang <= 22: return 3.5
     return 4.0
+
 
 def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
     dur = durasi_judul_awal(upper_txt, judul_txt, subjudul_txt)
@@ -418,6 +425,7 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
 
     return VideoClip(make_frame, duration=dur)
 
+
 # ---------- KONTEN ISI: MULTILINE HIGHLIGHT + WIPE (LAYOUT MENIRU AWAL) ----------
 def render_text_block(text, font_path, font_size, dur):
     total_frames = int(FPS * dur)
@@ -459,18 +467,20 @@ def render_text_block(text, font_path, font_size, dur):
             mask = Image.new("L", VIDEO_SIZE, 0)
             ImageDraw.Draw(mask).rectangle([0, 0, wipe_w, VIDEO_SIZE[1]], fill=255)
 
-            black_bg = Image.new("RGB", VIDEO_SIZE, BG_COLOR)
-            frame = Image.composite(frame_img, black_bg, mask)
+            colored_bg = Image.new("RGB", VIDEO_SIZE, BG_COLOR)
+            frame = Image.composite(frame_img, colored_bg, mask)
             return np.array(frame)
         else:
             return base_frame
 
     return VideoClip(make_frame, duration=dur)
 
+
 # ---------- SEPARATOR / PENUTUP ----------
 def render_separator(dur=0.7):
-    frame = np.zeros((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), dtype=np.uint8)
+    frame = np.full((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), BG_COLOR, dtype=np.uint8)
     return ImageClip(frame, duration=dur)
+
 
 # ---------- OVERLAY ----------
 def add_overlay(base_clip):
@@ -484,6 +494,7 @@ def add_overlay(base_clip):
     except Exception as e:
         print(f"❌ Failed to apply overlay: {e}")
         return base_clip
+
 
 # ---------- PARSER DATA STABIL ----------
 def baca_semua_berita_stable(filename):
@@ -544,6 +555,7 @@ def baca_semua_berita_stable(filename):
         print(f"❌ Parse failed: {e}")
         return []
 
+
 # ---------- DURASI CERDAS ----------
 def hitung_durasi_isi(text):
     try:
@@ -561,6 +573,7 @@ def hitung_durasi_isi(text):
         return round(dur, 1)
     except:
         return 5.0
+
 
 # ---------- PIPELINE ----------
 def buat_video_stable(data, i=None):
@@ -610,6 +623,7 @@ def buat_video_stable(data, i=None):
     except Exception as e:
         print(f"❌ VIDEO FAILED: {e}")
         traceback.print_exc()
+
 
 # ---------- MAIN ----------
 if __name__ == "__main__":
