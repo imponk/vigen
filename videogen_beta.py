@@ -1,7 +1,3 @@
-# ==========================================================
-# ✅ VIDEO GENERATOR - MULTILINE SMOOTH HIGHLIGHT (V2, layout meniru versi awal)
-# ==========================================================
-
 from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips, VideoClip
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
@@ -14,7 +10,7 @@ import traceback
 
 # ---------- KONFIGURASI ----------
 VIDEO_SIZE = (720, 1280)
-BG_COLOR = (255, 0, 255)
+BG_COLOR = (128, 128, 128) # <--- PERUBAHAN 1: Magenta (255, 0, 255) diganti ke Abu-abu Netral (128, 128, 128)
 TEXT_COLOR = (255, 255, 255, 255)
 FPS = 24
 
@@ -174,7 +170,8 @@ class StableTextProcessor:
         - Mengukur lebar substring per-frame untuk transisi benar-benar halus
         """
         try:
-            base_img = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
+            # Menggunakan BG_COLOR yang baru (128, 128, 128)
+            base_img = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,)) 
             highlight_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
             text_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
 
@@ -467,7 +464,8 @@ def render_text_block(text, font_path, font_size, dur):
             mask = Image.new("L", VIDEO_SIZE, 0)
             ImageDraw.Draw(mask).rectangle([0, 0, wipe_w, VIDEO_SIZE[1]], fill=255)
 
-            colored_bg = Image.new("RGB", VIDEO_SIZE, BG_COLOR)
+            # PERUBAHAN 2: Pastikan latar belakang transisi wipe menggunakan BG_COLOR yang baru.
+            colored_bg = Image.new("RGB", VIDEO_SIZE, BG_COLOR) 
             frame = Image.composite(frame_img, colored_bg, mask)
             return np.array(frame)
         else:
@@ -478,7 +476,8 @@ def render_text_block(text, font_path, font_size, dur):
 
 # ---------- SEPARATOR / PENUTUP ----------
 def render_separator(dur=0.7):
-    frame = np.full((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), BG_COLOR, dtype=np.uint8)
+    # PERUBAHAN 3: Frame separator menggunakan BG_COLOR yang baru.
+    frame = np.full((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), BG_COLOR, dtype=np.uint8) 
     return ImageClip(frame, duration=dur)
 
 
