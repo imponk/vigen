@@ -1,3 +1,7 @@
+# ==========================================================
+# ✅ VIDEO GENERATOR - MULTILINE SMOOTH HIGHLIGHT (V2, layout meniru versi awal)
+# ==========================================================
+
 from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips, VideoClip
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
@@ -10,7 +14,8 @@ import traceback
 
 # ---------- KONFIGURASI ----------
 VIDEO_SIZE = (720, 1280)
-BG_COLOR = (128, 128, 128) # <--- PERUBAHAN 1: Magenta (255, 0, 255) diganti ke Abu-abu Netral (128, 128, 128)
+# PERUBAHAN 1: BG_COLOR diubah ke Abu-abu Netral (128, 128, 128)
+BG_COLOR = (128, 128, 128) 
 TEXT_COLOR = (255, 255, 255, 255)
 FPS = 24
 
@@ -170,7 +175,6 @@ class StableTextProcessor:
         - Mengukur lebar substring per-frame untuk transisi benar-benar halus
         """
         try:
-            # Menggunakan BG_COLOR yang baru (128, 128, 128)
             base_img = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,)) 
             highlight_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
             text_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
@@ -306,8 +310,10 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
     upper_font_size = 28
     judul_font_size = 60
     sub_font_size = 28
-    spacing_upper_judul = 12
-    spacing_judul_sub = 19
+    
+    # PERUBAHAN 2: Penyesuaian jarak vertikal (Upper <-> Judul <-> Subjudul)
+    spacing_upper_judul = 8    # Diubah dari 12 menjadi 8
+    spacing_judul_sub = 12     # Diubah dari 19 menjadi 12
 
     def smart_wrap(text, font, max_width, margin_left=70, margin_right=90):
         if not text:
@@ -464,7 +470,7 @@ def render_text_block(text, font_path, font_size, dur):
             mask = Image.new("L", VIDEO_SIZE, 0)
             ImageDraw.Draw(mask).rectangle([0, 0, wipe_w, VIDEO_SIZE[1]], fill=255)
 
-            # PERUBAHAN 2: Pastikan latar belakang transisi wipe menggunakan BG_COLOR yang baru.
+            # Transisi wipe menggunakan BG_COLOR yang baru.
             colored_bg = Image.new("RGB", VIDEO_SIZE, BG_COLOR) 
             frame = Image.composite(frame_img, colored_bg, mask)
             return np.array(frame)
@@ -476,7 +482,7 @@ def render_text_block(text, font_path, font_size, dur):
 
 # ---------- SEPARATOR / PENUTUP ----------
 def render_separator(dur=0.7):
-    # PERUBAHAN 3: Frame separator menggunakan BG_COLOR yang baru.
+    # Frame separator menggunakan BG_COLOR yang baru.
     frame = np.full((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), BG_COLOR, dtype=np.uint8) 
     return ImageClip(frame, duration=dur)
 
