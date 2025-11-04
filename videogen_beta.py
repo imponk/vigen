@@ -264,7 +264,7 @@ class StableTextProcessor:
                     [
                         seg['x'] - 4,
                         seg['y'] + HIGHLIGHT_TOP_OFFSET,
-                        seg['x'] + highlight_w - 6,
+                        seg['x'] + highlight_w - 4,
                         seg['y'] + HIGHLIGHT_BOTTOM_OFFSET
                     ],
                     fill=HIGHLIGHT_COLOR
