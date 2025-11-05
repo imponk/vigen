@@ -308,7 +308,7 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
     sub_font_size = 25
     
     # PERUBAHAN 2: Penyesuaian jarak vertikal (Upper <-> Judul <-> Subjudul)
-    spacing_upper_judul = 8    # Diubah dari 12 menjadi 8
+    spacing_upper_judul = 6    # Diubah dari 12 menjadi 8
     spacing_judul_sub = 12     # Diubah dari 19 menjadi 12
 
     def smart_wrap(text, font, max_width, margin_left=70, margin_right=90):
