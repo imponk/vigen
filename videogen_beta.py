@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips, VideoClip
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
@@ -7,7 +10,7 @@ import traceback
 
 # ---------- KONFIGURASI ----------
 VIDEO_SIZE = (720, 1280)
-BG_COLOR = (128, 128, 128)  # Abu-abu netral
+BG_COLOR = (128, 128, 128)
 TEXT_COLOR = (255, 255, 255, 255)
 FPS = 24
 
@@ -92,11 +95,6 @@ class StableTextProcessor:
         return len(text) * 15
 
     def parse_text_with_highlights(self, text):
-        """
-        Pisahkan segmen highlight [[...]] tanpa regex (lebih aman saat copy-paste).
-        Mengganti '|' di dalam [[...]] menjadi spasi.
-        Mengembalikan list dict {'text': str, 'is_highlight': bool}.
-        """
         segments = []
         if text is None:
             return [{'text': '', 'is_highlight': False}]
@@ -131,10 +129,6 @@ class StableTextProcessor:
         return word.lower().strip('.,!?;:()[]{}"\'-') in self.orphan_words
 
     def smart_wrap_with_highlights(self, text):
-        """
-        Membungkus teks sambil menjaga segmen highlight.
-        Menghasilkan list of lines; tiap line berisi list dict {word, is_highlight}.
-        """
         segments = self.parse_text_with_highlights(text)
         available_width = self.max_width - self.margin_x - self.margin_right
 
@@ -181,9 +175,6 @@ class StableTextProcessor:
         return lines
 
     def render_lines_with_continuous_highlight(self, lines, base_y, frame_idx, total_frames):
-        """
-        Render highlight progresif dengan easing; mengembalikan array RGB.
-        """
         try:
             base_img = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
             highlight_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
@@ -300,12 +291,13 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
     dummy_img = Image.new("RGBA", (1, 1))
     draw = ImageDraw.Draw(dummy_img)
 
-    # Ukuran font: upper & subjudul 42pt, judul 96pt (responsif turun jika overflow)
+    # Requested sizes: judul 96pt with leading 96pt; upper/sub 42pt with leading 42pt
     upper_font_size = 42
     judul_font_size = 96
     sub_font_size = 42
-    spacing_upper_judul = 12
-    spacing_judul_sub = 18
+    spacing_upper_judul_leading = 42
+    spacing_judul_leading = 96
+    spacing_sub_leading = 42
 
     def smart_wrap(text, font, max_width, margin_left=70, margin_right=90):
         if not text:
@@ -335,10 +327,28 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
         return "\n".join(out)
 
     def calculate_layout(current_judul_font_size):
-        # load font instances (fallback jika file tidak ada)
+        # load fonts (with fallback)
         font_upper = ImageFont.truetype(fonts["upper"], upper_font_size) if (upper_txt and os.path.exists(fonts["upper"])) else load_font_safe(fonts["upper"], upper_font_size) if upper_txt else None
         font_judul = ImageFont.truetype(fonts["judul"], current_judul_font_size) if (judul_txt and os.path.exists(fonts["judul"])) else load_font_safe(fonts["judul"], current_judul_font_size) if judul_txt else None
         font_sub = ImageFont.truetype(fonts["subjudul"], sub_font_size) if (subjudul_txt and os.path.exists(fonts["subjudul"])) else load_font_safe(fonts["subjudul"], sub_font_size) if subjudul_txt else None
+
+        # compute font line heights to convert leading -> spacing
+        def font_line_height(font):
+            if not font:
+                return 0
+            try:
+                bb = font.getbbox("HgypqA")
+                return bb[3] - bb[1]
+            except:
+                return int(font.size * 0.7) if hasattr(font, "size") else 30
+
+        upper_line_h = font_line_height(font_upper)
+        judul_line_h = font_line_height(font_judul)
+        sub_line_h = font_line_height(font_sub)
+
+        upper_spacing = max(0, spacing_upper_judul_leading - upper_line_h)
+        judul_spacing = max(0, spacing_judul_leading - judul_line_h)
+        sub_spacing = max(0, spacing_sub_leading - sub_line_h)
 
         wrapped_upper = smart_wrap(upper_txt, font_upper, VIDEO_SIZE[0]) if font_upper and upper_txt else None
         wrapped_judul = smart_wrap(judul_txt, font_judul, VIDEO_SIZE[0]) if font_judul and judul_txt else None
@@ -349,35 +359,39 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
         y_upper = y_judul = y_sub = None
         bottom_y = y_start
 
-        def bbox_bottom(x, y, text, font):
+        def bbox_bottom(x, y, text, font, spacing):
             if not text or not font:
                 return y
-            bbox = draw.multiline_textbbox((x, y), text, font=font, spacing=4)
+            bbox = draw.multiline_textbbox((x, y), text, font=font, spacing=spacing)
             return bbox[3]
 
         if wrapped_upper:
             y_upper = current_y
-            bottom_y = bbox_bottom(margin_x, y_upper, wrapped_upper, font_upper)
-            current_y = bottom_y + spacing_upper_judul
+            bottom_y = bbox_bottom(margin_x, y_upper, wrapped_upper, font_upper, upper_spacing)
+            current_y = bottom_y + upper_spacing
 
         if wrapped_judul:
             y_judul = current_y
-            bottom_y = bbox_bottom(margin_x, y_judul, wrapped_judul, font_judul)
-            current_y = bottom_y + spacing_judul_sub
+            bottom_y = bbox_bottom(margin_x, y_judul, wrapped_judul, font_judul, judul_spacing)
+            current_y = bottom_y + judul_spacing
 
         if wrapped_sub:
             y_sub = current_y
-            bottom_y = bbox_bottom(margin_x, y_sub, wrapped_sub, font_sub)
+            bottom_y = bbox_bottom(margin_x, y_sub, wrapped_sub, font_sub, sub_spacing)
 
         return {
             "font_upper": font_upper, "font_judul": font_judul, "font_sub": font_sub,
             "wrapped_upper": wrapped_upper,
             "wrapped_judul": wrapped_judul,
             "wrapped_sub": wrapped_sub,
-            "y_upper": y_upper, "y_judul": y_judul, "y_sub": y_sub, "bottom_y": bottom_y
+            "y_upper": y_upper, "y_judul": y_judul, "y_sub": y_sub,
+            "bottom_y": bottom_y,
+            "upper_spacing": upper_spacing,
+            "judul_spacing": judul_spacing,
+            "sub_spacing": sub_spacing
         }
 
-    # terapkan layout awal dengan judul 96pt, lalu coba turunkan ukuran bertahap kalau overflow
+    # try layout with 96pt title, downscale if overflow (aggressive steps but capped)
     curr_size = judul_font_size
     layout = calculate_layout(curr_size)
     attempts = 0
@@ -409,12 +423,20 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
 
         frame = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
         layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
+
+        # draw with computed spacing (leading)
         if layout["wrapped_upper"] and layout["y_upper"] is not None:
-            ImageDraw.Draw(layer).multiline_text((margin_x, layout["y_upper"]), layout["wrapped_upper"], font=layout["font_upper"], fill=TEXT_COLOR, align="left", spacing=4)
+            ImageDraw.Draw(layer).multiline_text((margin_x, layout["y_upper"]), layout["wrapped_upper"],
+                                                 font=layout["font_upper"], fill=TEXT_COLOR,
+                                                 align="left", spacing=layout["upper_spacing"])
         if layout["wrapped_judul"] and layout["y_judul"] is not None:
-            ImageDraw.Draw(layer).multiline_text((margin_x, layout["y_judul"]), layout["wrapped_judul"], font=layout["font_judul"], fill=TEXT_COLOR, align="left", spacing=4)
+            ImageDraw.Draw(layer).multiline_text((margin_x, layout["y_judul"]), layout["wrapped_judul"],
+                                                 font=layout["font_judul"], fill=TEXT_COLOR,
+                                                 align="left", spacing=layout["judul_spacing"])
         if layout["wrapped_sub"] and layout["y_sub"] is not None:
-            ImageDraw.Draw(layer).multiline_text((margin_x, layout["y_sub"]), layout["wrapped_sub"], font=layout["font_sub"], fill=TEXT_COLOR, align="left", spacing=4)
+            ImageDraw.Draw(layer).multiline_text((margin_x, layout["y_sub"]), layout["wrapped_sub"],
+                                                 font=layout["font_sub"], fill=TEXT_COLOR,
+                                                 align="left", spacing=layout["sub_spacing"])
 
         if anim and prog < 1.0:
             t_eased = ease_out_cubic(prog)
@@ -556,7 +578,6 @@ def hitung_durasi_isi(text):
         if not text:
             return 3.0
 
-        # Hapus segmen highlight [[...]] tanpa regex (scan aman)
         out_chars = []
         i = 0
         n = len(text)
