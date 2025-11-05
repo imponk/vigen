@@ -303,9 +303,9 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
 
     dummy_img = Image.new("RGBA", (1, 1))
     draw = ImageDraw.Draw(dummy_img)
-    upper_font_size = 28
+    upper_font_size = 25
     judul_font_size = 60
-    sub_font_size = 28
+    sub_font_size = 25
     
     # PERUBAHAN 2: Penyesuaian jarak vertikal (Upper <-> Judul <-> Subjudul)
     spacing_upper_judul = 8    # Diubah dari 12 menjadi 8
