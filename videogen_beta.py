@@ -1,7 +1,3 @@
-# ==========================================================
-# ✅ VIDEO GENERATOR - MULTILINE SMOOTH HIGHLIGHT (V2, layout meniru versi awal)
-# ==========================================================
-
 from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips, VideoClip
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
@@ -19,9 +15,9 @@ TEXT_COLOR = (255, 255, 255, 255)
 FPS = 24
 
 FONTS = {
-    "upper": "ProximaNova-Bold.ttf",
+    "upper": "Poppins-Bold.ttf",
     "judul": "DMSerifDisplay-Regular.ttf",
-    "subjudul": "ProximaNova-Regular.ttf",
+    "subjudul": "Poppins-Bold.ttf",
     "isi": "Poppins-Bold.ttf",
 }
 
@@ -90,7 +86,7 @@ class StableTextProcessor:
             for part in parts:
                 if not part:
                     continue
-                if part.startswith('[[']) and part.endswith(']]'):
+                if part.startswith('[[') and part.endswith(']]'):
                     content = part[2:-2].replace('|', ' ')
                     if content:
                         segments.append({'text': content, 'is_highlight': True})
@@ -303,13 +299,13 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
 
     dummy_img = Image.new("RGBA", (1, 1))
     draw = ImageDraw.Draw(dummy_img)
-    upper_font_size = 28
+    upper_font_size = 27
     judul_font_size = 60
-    sub_font_size = 28
+    sub_font_size = 27
     
     # PERUBAHAN 2: Penyesuaian jarak vertikal (Upper <-> Judul <-> Subjudul)
-    spacing_upper_judul = 8    # Diubah dari 12 menjadi 8
-    spacing_judul_sub = 12     # Diubah dari 19 menjadi 12
+    spacing_upper_judul = 12   # Disamakan dengan lokal
+    spacing_judul_sub = 18     # Disamakan dengan lokal
 
     def smart_wrap(text, font, max_width, margin_left=70, margin_right=90):
         if not text:
@@ -525,14 +521,14 @@ def baca_semua_berita_stable(filename):
                 if state == 'upper':
                     current['Upper'] = (current.get('Upper', '') + ('\n' if current.get('Upper') else '') + line).strip()
                 elif state == 'judul':
-                    if len(line) > 100 or '[[" in line:
+                    if len(line) > 100 or '[[' in line:
                         state = 'isi'
                         current[f'Isi_{isi_counter}'] = line
                         isi_counter += 1
                     else:
                         current['Judul'] = (current.get('Judul', '') + ('\n' if current.get('Judul') else '') + line).strip()
                 elif state == 'subjudul':
-                    if len(line) > 100 or '[[" in line:
+                    if len(line) > 100 or '[[' in line:
                         state = 'isi'
                         current[f'Isi_{isi_counter}'] = line
                         isi_counter += 1
