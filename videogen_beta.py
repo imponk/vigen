@@ -559,15 +559,17 @@ def hitung_durasi_isi(text):
         if not text:
             return 3.0
         # Lepas bracket highlight menjadi teks biasa untuk hitung durasi
+        # Gunakan grup non-greedy untuk menangkap isi di dalam [[...]]
         clean = re.sub(r'
 
 \[
 
-\[.*?\]
+\[(.*?)\]
 
 \]
 
-', lambda m: m.group(0)[2:-2], text).replace('\n', ' ').strip()
+', lambda m: m.group(1), text, flags=re.DOTALL)
+        clean = clean.replace('\n', ' ').strip()
         kata = len(clean.split())
         dur = (kata / 160.0) * 60.0  # 160 WPM
         if len(clean) > 300:
