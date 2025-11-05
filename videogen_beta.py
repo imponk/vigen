@@ -9,8 +9,7 @@ import traceback
 
 # ---------- KONFIGURASI ----------
 VIDEO_SIZE = (720, 1280)
-# PERUBAHAN 1: BG_COLOR diubah ke Abu-abu Netral (128, 128, 128)
-BG_COLOR = (128, 128, 128) 
+BG_COLOR = (128, 128, 128)  # Abu-abu netral
 TEXT_COLOR = (255, 255, 255, 255)
 FPS = 24
 
@@ -49,12 +48,29 @@ def ease_out_cubic(t):
 
 # ---------- TEXT PROCESSOR DENGAN HIGHLIGHT ----------
 class StableTextProcessor:
-    def __init__(self, font, max_width, margin_x=70, margin_right=90):
+    def __init__(self, font, max_width, margin_x=70, margin_right=90, orphan_file="orphan_words.txt"):
         self.font = font
         self.max_width = max_width
         self.margin_x = margin_x
         self.margin_right = margin_right
         self.line_height = self._calculate_line_height()
+        self.orphan_words = self._load_orphan_words(orphan_file)
+
+    def _load_orphan_words(self, orphan_file):
+        """
+        Baca daftar orphan words dari file eksternal. Fallback default jika file tidak ada.
+        Satu kata per baris; otomatis di-lowercase dan di-strip spasi.
+        """
+        try:
+            if not os.path.exists(orphan_file):
+                return {"di", "ke", "rp", "rupiah", "juta", "miliar", "ribu", "dan", "atau", "yang", "pada", "dari", "untuk", "dengan", "oleh", "serta"}
+            with open(orphan_file, "r", encoding="utf-8") as f:
+                words = {line.strip().lower() for line in f if line.strip()}
+                # Pastikan tidak kosong; kalau kosong, gunakan default
+                return words or {"di", "ke", "rp", "rupiah", "juta", "miliar", "ribu", "dan", "atau", "yang", "pada", "dari", "untuk", "dengan", "oleh", "serta"}
+        except Exception as e:
+            print(f"⚠️ Gagal membaca orphan_words.txt: {e} (gunakan default)")
+            return {"di", "ke", "rp", "rupiah", "juta", "miliar", "ribu", "dan", "atau", "yang", "pada", "dari", "untuk", "dengan", "oleh", "serta"}
 
     def _calculate_line_height(self):
         if self.font:
@@ -81,7 +97,15 @@ class StableTextProcessor:
 
     def parse_text_with_highlights(self, text):
         try:
-            parts = re.split(r'(\[\[.*?\]\])', text)
+            parts = re.split(r'(
+
+\[
+
+\[.*?\]
+
+\]
+
+)', text)
             segments = []
             for part in parts:
                 if not part:
@@ -99,6 +123,9 @@ class StableTextProcessor:
             print(f"⚠️ Parse error: {e}")
             return [{'text': text, 'is_highlight': False}]
 
+    def is_orphan(self, word):
+        return word.lower().strip('.,!?;:()[]{}"\'-') in self.orphan_words
+
     def smart_wrap_with_highlights(self, text):
         """
         Membungkus teks sambil menjaga segmen highlight.
@@ -106,12 +133,6 @@ class StableTextProcessor:
         """
         segments = self.parse_text_with_highlights(text)
         available_width = self.max_width - self.margin_x - self.margin_right
-
-        # Orphan words ringan untuk konten
-        orphan_words = {'di', 'ke', 'rp', 'rupiah', 'juta', 'miliar', 'ribu'}
-
-        def is_orphan(word):
-            return word.lower().strip('.,!?;:()[]{}"\'-') in orphan_words
 
         # Flatten ke daftar kata dengan flag highlight
         words = []
@@ -135,7 +156,7 @@ class StableTextProcessor:
             else:
                 if current:
                     # Cek orphan terakhir
-                    if len(current) > 1 and is_orphan(current[-1]['word']):
+                    if len(current) > 1 and self.is_orphan(current[-1]['word']):
                         orphan = current.pop()
                         if current:
                             lines.append(current)
@@ -154,7 +175,7 @@ class StableTextProcessor:
 
         # Post-fix orphan sederhana antar-baris
         for j in range(len(lines) - 1):
-            if len(lines[j]) >= 1 and is_orphan(lines[j][-1]['word']):
+            if len(lines[j]) >= 1 and self.is_orphan(lines[j][-1]['word']):
                 orphan = lines[j].pop()
                 lines[j + 1].insert(0, orphan)
 
@@ -165,37 +186,35 @@ class StableTextProcessor:
         Highlight progresif lintas-baris:
         - Progres global berbasis total karakter highlight
         - Ease-out global cubic dan intra-kata
-        - Mengukur lebar substring per-frame untuk transisi benar-benar halus
+        - Mengukur lebar substring per-frame untuk transisi halus
         """
         try:
-            base_img = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,)) 
+            base_img = Image.new("RGBA", VIDEO_SIZE, BG_COLOR + (255,))
             highlight_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
             text_layer = Image.new("RGBA", VIDEO_SIZE, (0, 0, 0, 0))
 
             hl_draw = ImageDraw.Draw(highlight_layer)
             txt_draw = ImageDraw.Draw(text_layer)
 
-            # Progres global highlight (lebih halus = 35% durasi total)
             span_frames = max(1, int(total_frames * HIGHLIGHT_SPEED_FRAC))
             base_progress = min(1.0, frame_idx / float(span_frames))
             global_progress = ease_out_cubic(base_progress)
 
-            # Kumpulkan segmen highlight
             segments = []
             total_chars = 0
             y = base_y
 
-            # Offsets untuk kotak highlight
+            # Hitung line height
             try:
                 bbox_A = self.font.getbbox("A")
                 lh_text = bbox_A[3] - bbox_A[1]
             except:
                 lh_text = 30
             line_height = max(lh_text + ISILINE_PADDING, 30 + ISILINE_PADDING)
-            HIGHLIGHT_TOP_OFFSET = 3 + 6
-            HIGHLIGHT_BOTTOM_OFFSET = line_height - 2 + 6
+            HIGHLIGHT_TOP_OFFSET = 9
+            HIGHLIGHT_BOTTOM_OFFSET = line_height + 4
 
-            # Pre-render: ukur semua kata untuk posisi x
+            # Pre-render: posisi tiap kata
             positions_per_line = []
             for line in lines:
                 x = self.margin_x
@@ -208,7 +227,7 @@ class StableTextProcessor:
                 positions_per_line.append((y, pos_line))
                 y += line_height
 
-            # Hitung total_chars dari hanya segmen highlight
+            # Kumpulkan segmen highlight
             for y_line, pos_line in positions_per_line:
                 for (x, wi, width_word) in pos_line:
                     if wi['is_highlight']:
@@ -224,7 +243,7 @@ class StableTextProcessor:
 
             current_chars = int(global_progress * total_chars) if total_chars > 0 else 0
 
-            # Gambar highlight segmen dengan progres halus berbasis lebar substring aktual
+            # Gambar highlight segmen
             for seg in segments:
                 if seg['char_start'] > current_chars:
                     continue
@@ -236,19 +255,13 @@ class StableTextProcessor:
                 if chars_into >= word_len:
                     highlight_w = seg['width']
                 else:
-                    # Ukur lebar substring aktual untuk transisi super halus (proporsional huruf)
                     partial_text = seg['word'][:chars_into]
-                    # smooth intra-kata dengan cubic easing terhadap 1 char berikutnya
                     intra = 0.0
                     if chars_into < word_len:
-                        # fraksi menuju karakter berikutnya untuk sedikit interpolasi subpixel
-                        # gunakan sisa progres global kecil untuk smoothing mikro
                         frac = (global_progress * total_chars - seg['char_start'] - chars_into)
                         frac = max(0.0, min(1.0, frac))
                         intra = ease_out_cubic(frac)
-                    partial_plus = partial_text
-                    # Hitung lebar substring
-                    base_w = self._measure_text(partial_plus)
+                    base_w = self._measure_text(partial_text)
                     next_char_w = 0
                     if chars_into < word_len:
                         next_char_w = self._measure_text(seg['word'][:chars_into+1]) - base_w
@@ -303,9 +316,8 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
     judul_font_size = 60
     sub_font_size = 27
     
-    # PERUBAHAN 2: Penyesuaian jarak vertikal (Upper <-> Judul <-> Subjudul)
-    spacing_upper_judul = 12   # Disamakan dengan lokal
-    spacing_judul_sub = 18     # Disamakan dengan lokal
+    spacing_upper_judul = 12
+    spacing_judul_sub = 18
 
     def smart_wrap(text, font, max_width, margin_left=70, margin_right=90):
         if not text:
@@ -377,7 +389,6 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
     if layout["bottom_y"] > batas_bawah_aman:
         layout = calculate_layout(int(judul_font_size * 0.94))
 
-    # Jika masih terlalu rendah, geser ke atas (meniru patch versi awal)
     if layout["bottom_y"] > batas_bawah_aman:
         kelebihan = layout["bottom_y"] - batas_bawah_aman
         offset = min(kelebihan + 20, 150)
@@ -420,7 +431,7 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
 
     return VideoClip(make_frame, duration=dur)
 
-# ---------- KONTEN ISI: MULTILINE HIGHLIGHT + WIPE (LAYOUT MENIRU AWAL) ----------
+# ---------- KONTEN ISI: MULTILINE HIGHLIGHT + WIPE ----------
 def render_text_block(text, font_path, font_size, dur):
     total_frames = int(FPS * dur)
     wipe_frames = min(int(FPS * 0.8), total_frames)  # 0.8s wipe
@@ -433,14 +444,10 @@ def render_text_block(text, font_path, font_size, dur):
     if not font:
         font = load_font_safe(font_path, 24)
 
-    # Wrap teks isi meniru versi awal (smart_wrap dengan placeholder aman tidak diperlukan di sini,
-    # karena processor sudah memelihara highlight via tokenisasi)
-    processor = StableTextProcessor(font, VIDEO_SIZE[0], margin_x=margin_x, margin_right=90)
+    processor = StableTextProcessor(font, VIDEO_SIZE[0], margin_x=margin_x, margin_right=90, orphan_file="orphan_words.txt")
     wrapped_lines = processor.smart_wrap_with_highlights(text)
 
-    # Hitung tinggi total seperti versi awal (pakai line height + ISILINE_PADDING-2 untuk bbox)
     total_h = len(wrapped_lines) * processor.line_height
-    # Batas bawah aman
     bottom_y = base_y + total_h
     if bottom_y > batas_bawah_aman:
         overflow = bottom_y - batas_bawah_aman
@@ -448,10 +455,8 @@ def render_text_block(text, font_path, font_size, dur):
 
     def make_frame(t):
         i = int(t * FPS)
-        # Render dasar (highlight + text)
         base_frame = processor.render_lines_with_continuous_highlight(wrapped_lines, base_y, i, total_frames)
 
-        # Terapkan wipe di awal
         if i < wipe_frames:
             prog = i / float(max(1, wipe_frames))
             t_eased = ease_out_cubic(prog)
@@ -461,8 +466,7 @@ def render_text_block(text, font_path, font_size, dur):
             mask = Image.new("L", VIDEO_SIZE, 0)
             ImageDraw.Draw(mask).rectangle([0, 0, wipe_w, VIDEO_SIZE[1]], fill=255)
 
-            # Transisi wipe menggunakan BG_COLOR yang baru.
-            colored_bg = Image.new("RGB", VIDEO_SIZE, BG_COLOR) 
+            colored_bg = Image.new("RGB", VIDEO_SIZE, BG_COLOR)
             frame = Image.composite(frame_img, colored_bg, mask)
             return np.array(frame)
         else:
@@ -472,8 +476,7 @@ def render_text_block(text, font_path, font_size, dur):
 
 # ---------- SEPARATOR / PENUTUP ----------
 def render_separator(dur=0.7):
-    # Frame separator menggunakan BG_COLOR yang baru.
-    frame = np.full((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), BG_COLOR, dtype=np.uint8) 
+    frame = np.full((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), BG_COLOR, dtype=np.uint8)
     return ImageClip(frame, duration=dur)
 
 # ---------- OVERLAY ----------
@@ -553,7 +556,15 @@ def hitung_durasi_isi(text):
     try:
         if not text:
             return 3.0
-        clean = re.sub(r'\[\[.*?\]\]', lambda m: m.group(0)[2:-2], text).replace('\n', ' ').strip()
+        clean = re.sub(r'
+
+\[
+
+\[.*?\]
+
+\]
+
+', lambda m: m.group(0)[2:-2], text).replace('\n', ' ').strip()
         kata = len(clean.split())
         dur = (kata / 160.0) * 60.0  # 160 WPM
         if len(clean) > 300:
