@@ -558,20 +558,37 @@ def hitung_durasi_isi(text):
     try:
         if not text:
             return 3.0
-        # Lepas bracket highlight menjadi teks biasa untuk hitung durasi
-        # Gunakan grup non-greedy untuk menangkap isi di dalam [[...]]
-        clean = re.sub(r'
 
-\[
+        # Hapus segmen highlight [[...]] tanpa regex (scan karakter demi karakter)
+        out_chars = []
+        i = 0
+        n = len(text)
+        while i < n:
+            if i + 1 < n and text[i] == '[' and text[i + 1] == '[':
+                # lompat sampai "]]" berikutnya; jika tidak ada, berhenti di akhir
+                j = i + 2
+                while j + 1 < n and not (text[j] == ']' and text[j + 1] == ']'):
+                    j += 1
+                # jika ketemu penutup, ambil isi di antara; jika tidak, hentikan loop
+                if j + 1 < n and text[j] == ']' and text[j + 1] == ']':
+                    inner = text[i + 2:j]
+                    # ganti '|' dengan spasi untuk menghitung kata
+                    out_chars.append(inner.replace('|', ' '))
+                    i = j + 2
+                    continue
+                else:
+                    # tidak ada penutup, anggap sisanya biasa
+                    out_chars.append(text[i:])
+                    break
+            else:
+                out_chars.append(text[i])
+                i += 1
 
-\[(.*?)\]
-
-\]
-
-', lambda m: m.group(1), text, flags=re.DOTALL)
-        clean = clean.replace('\n', ' ').strip()
+        clean = "".join(out_chars).replace("\n", " ").strip()
         kata = len(clean.split())
-        dur = (kata / 160.0) * 60.0  # 160 WPM
+
+        # Durasi dasar berdasarkan pembicaraan 160 WPM (kata per menit)
+        dur = (kata / 160.0) * 60.0
         if len(clean) > 300:
             dur *= 1.4
         elif len(clean) > 200:
