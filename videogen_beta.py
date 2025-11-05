@@ -11,7 +11,6 @@ import sys
 import time
 import traceback
 
-
 # ---------- KONFIGURASI ----------
 VIDEO_SIZE = (720, 1280)
 # PERUBAHAN 1: BG_COLOR diubah ke Abu-abu Netral (128, 128, 128)
@@ -33,7 +32,6 @@ HIGHLIGHT_COLOR = (0, 124, 188, 255)
 ISILINE_PADDING = 5  # Jarak vertikal antar baris isi
 HIGHLIGHT_SPEED_FRAC = 0.35  # Bagian durasi untuk sweep highlight (lebih smooth dari 0.25)
 
-
 # ---------- UTIL: FONT AMAN ----------
 def load_font_safe(font_path, size):
     try:
@@ -52,7 +50,6 @@ def load_font_safe(font_path, size):
 
 def ease_out_cubic(t):
     return 1.0 - pow(1.0 - t, 3.0)
-
 
 # ---------- TEXT PROCESSOR DENGAN HIGHLIGHT ----------
 class StableTextProcessor:
@@ -93,7 +90,7 @@ class StableTextProcessor:
             for part in parts:
                 if not part:
                     continue
-                if part.startswith('[[') and part.endswith(']]'):
+                if part.startswith('[[']) and part.endswith(']]'):
                     content = part[2:-2].replace('|', ' ')
                     if content:
                         segments.append({'text': content, 'is_highlight': True})
@@ -286,7 +283,6 @@ class StableTextProcessor:
             print(f"⚠️ Render error: {e}")
             return np.zeros((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), dtype=np.uint8)
 
-
 # ---------- OPENING (LAYOUT MENIRU VERSI AWAL) ----------
 def durasi_judul_awal(upper, judul, subjudul):
     panjang = len((upper or "").split()) + len((judul or "").split()) + len((subjudul or "").split())
@@ -428,7 +424,6 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
 
     return VideoClip(make_frame, duration=dur)
 
-
 # ---------- KONTEN ISI: MULTILINE HIGHLIGHT + WIPE (LAYOUT MENIRU AWAL) ----------
 def render_text_block(text, font_path, font_size, dur):
     total_frames = int(FPS * dur)
@@ -479,13 +474,11 @@ def render_text_block(text, font_path, font_size, dur):
 
     return VideoClip(make_frame, duration=dur)
 
-
 # ---------- SEPARATOR / PENUTUP ----------
 def render_separator(dur=0.7):
     # Frame separator menggunakan BG_COLOR yang baru.
     frame = np.full((VIDEO_SIZE[1], VIDEO_SIZE[0], 3), BG_COLOR, dtype=np.uint8) 
     return ImageClip(frame, duration=dur)
-
 
 # ---------- OVERLAY ----------
 def add_overlay(base_clip):
@@ -499,7 +492,6 @@ def add_overlay(base_clip):
     except Exception as e:
         print(f"❌ Failed to apply overlay: {e}")
         return base_clip
-
 
 # ---------- PARSER DATA STABIL ----------
 def baca_semua_berita_stable(filename):
@@ -533,14 +525,14 @@ def baca_semua_berita_stable(filename):
                 if state == 'upper':
                     current['Upper'] = (current.get('Upper', '') + ('\n' if current.get('Upper') else '') + line).strip()
                 elif state == 'judul':
-                    if len(line) > 100 or '[[' in line:
+                    if len(line) > 100 or '[[" in line:
                         state = 'isi'
                         current[f'Isi_{isi_counter}'] = line
                         isi_counter += 1
                     else:
                         current['Judul'] = (current.get('Judul', '') + ('\n' if current.get('Judul') else '') + line).strip()
                 elif state == 'subjudul':
-                    if len(line) > 100 or '[[' in line:
+                    if len(line) > 100 or '[[" in line:
                         state = 'isi'
                         current[f'Isi_{isi_counter}'] = line
                         isi_counter += 1
@@ -560,7 +552,6 @@ def baca_semua_berita_stable(filename):
         print(f"❌ Parse failed: {e}")
         return []
 
-
 # ---------- DURASI CERDAS ----------
 def hitung_durasi_isi(text):
     try:
@@ -578,7 +569,6 @@ def hitung_durasi_isi(text):
         return round(dur, 1)
     except:
         return 5.0
-
 
 # ---------- PIPELINE ----------
 def buat_video_stable(data, i=None):
@@ -628,7 +618,6 @@ def buat_video_stable(data, i=None):
     except Exception as e:
         print(f"❌ VIDEO FAILED: {e}")
         traceback.print_exc()
-
 
 # ---------- MAIN ----------
 if __name__ == "__main__":
