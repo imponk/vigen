@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips, VideoClip
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
@@ -98,35 +101,42 @@ class StableTextProcessor:
 
     def parse_text_with_highlights(self, text):
         """
-        Pisahkan segmen highlight [[...]] dari teks biasa.
+        Pisahkan segmen highlight [[...]] dari teks biasa tanpa regex (menghindari error literal).
+        - Mengganti '|' di dalam [[...]] menjadi spasi.
+        - Mengembalikan list dict: {'text': str, 'is_highlight': bool}
         """
-        try:
-            # Pastikan regex string utuh di satu baris.
-            parts = re.split(r'(
-
-\[
-
-\[.*?\]
-
-\]
-
-)', text)
-            segments = []
-            for part in parts:
-                if not part:
-                    continue
-                if part.startswith('[[') and part.endswith(']]'):
-                    content = part[2:-2].replace('|', ' ')
-                    if content:
-                        segments.append({'text': content, 'is_highlight': True})
-                else:
-                    clean = part.replace('|', ' ')
-                    if clean:
-                        segments.append({'text': clean, 'is_highlight': False})
-            return segments
-        except Exception as e:
-            print(f"⚠️ Parse error: {e}")
-            return [{'text': text, 'is_highlight': False}]
+        segments = []
+        i = 0
+        n = len(text)
+        while i < n:
+            start = text.find("[[", i)
+            if start == -1:
+                # sisa biasa
+                normal = text[i:]
+                if normal:
+                    segments.append({'text': normal.replace('|', ' '), 'is_highlight': False})
+                break
+            # bagian biasa sebelum [[
+            if start > i:
+                normal = text[i:start]
+                if normal:
+                    segments.append({'text': normal.replace('|', ' '), 'is_highlight': False})
+            end = text.find("]]", start + 2)
+            if end == -1:
+                # tidak ada penutup, anggap sisanya biasa
+                tail = text[start:]
+                if tail:
+                    segments.append({'text': tail.replace('|', ' '), 'is_highlight': False})
+                break
+            # ambil isi highlight
+            content = text[start + 2:end]
+            content = content.replace('|', ' ')
+            if content:
+                segments.append({'text': content, 'is_highlight': True})
+            i = end + 2
+        if not segments:
+            segments = [{'text': text.replace('|', ' '), 'is_highlight': False}]
+        return segments
 
     def is_orphan(self, word):
         return word.lower().strip('.,!?;:()[]{}"\'-') in self.orphan_words
@@ -336,7 +346,7 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
                     line = test
             if line:
                 out.append(line.strip())
-        return "\n".join(out)
+        return "\n\n".join(out)
 
     def calculate_layout(current_judul_font_size):
         font_upper = ImageFont.truetype(fonts["upper"], upper_font_size) if (upper_txt and os.path.exists(fonts["upper"])) else load_font_safe(fonts["upper"], upper_font_size) if upper_txt else None
@@ -548,6 +558,7 @@ def hitung_durasi_isi(text):
     try:
         if not text:
             return 3.0
+        # Lepas bracket highlight menjadi teks biasa untuk hitung durasi
         clean = re.sub(r'
 
 \[
