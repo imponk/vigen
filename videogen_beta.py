@@ -2,7 +2,6 @@ from moviepy.editor import ImageClip, CompositeVideoClip, concatenate_videoclips
 from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import os
-import re
 import sys
 import traceback
 
@@ -99,8 +98,10 @@ class StableTextProcessor:
         Mengembalikan list dict {'text': str, 'is_highlight': bool}.
         """
         segments = []
+        if text is None:
+            return [{'text': '', 'is_highlight': False}]
         i = 0
-        n = len(text or "")
+        n = len(text)
         while i < n:
             start = text.find("[[", i)
             if start == -1:
@@ -123,7 +124,7 @@ class StableTextProcessor:
                 segments.append({'text': content, 'is_highlight': True})
             i = end + 2
         if not segments:
-            segments = [{'text': (text or "").replace('|', ' '), 'is_highlight': False}]
+            segments = [{'text': text.replace('|', ' '), 'is_highlight': False}]
         return segments
 
     def is_orphan(self, word):
@@ -298,9 +299,11 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
 
     dummy_img = Image.new("RGBA", (1, 1))
     draw = ImageDraw.Draw(dummy_img)
-    upper_font_size = 27
-    judul_font_size = 60
-    sub_font_size = 27
+
+    # Ukuran font: upper & subjudul 42pt, judul 96pt (responsif turun jika overflow)
+    upper_font_size = 42
+    judul_font_size = 96
+    sub_font_size = 42
     spacing_upper_judul = 12
     spacing_judul_sub = 18
 
@@ -374,13 +377,13 @@ def render_opening(upper_txt, judul_txt, subjudul_txt, fonts):
             "y_upper": y_upper, "y_judul": y_judul, "y_sub": y_sub, "bottom_y": bottom_y
         }
 
-    # Penurunan ukuran bertahap jika overflow
+    # terapkan layout awal dengan judul 96pt, lalu coba turunkan ukuran bertahap kalau overflow
     curr_size = judul_font_size
     layout = calculate_layout(curr_size)
     attempts = 0
-    while layout["bottom_y"] > batas_bawah_aman and attempts < 4:
+    while layout["bottom_y"] > batas_bawah_aman and attempts < 6:
         attempts += 1
-        curr_size = max(32, int(curr_size * 0.94))
+        curr_size = max(32, int(curr_size * 0.90))
         layout = calculate_layout(curr_size)
         if curr_size <= 32:
             break
