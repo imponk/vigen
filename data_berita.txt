@@ -1,8 +1,12 @@
 Judul:
-Truk Brimob
-Polda Bengkulu
-Masuk Jurang
-Sedalam 30 Meter
+Ini Adalah Judul
+Menggunakan Font
+DM Serif Display
 
 Subjudul:
-Rem Blong di Jalan Menurun
+Ini Adalah Subjudul Memakai
+Plus Jakarta Sans Custom
+
+Ini adalah isi berita menggunakan font [[Plus Jakarta Sans Custom.]] Ini adalah isi berita menggunakan font Plus Jakarta Sans Custom. Ini adalah isi berita menggunakan font Plus Jakarta Sans Custom.
+
+Ini adalah isi berita menggunakan font [[Plus Jakarta Sans Custom.]] Ini adalah isi berita menggunakan font Plus Jakarta Sans Custom. Ini adalah isi berita menggunakan font Plus Jakarta Sans Custom.
