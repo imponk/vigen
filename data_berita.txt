@@ -1,12 +1,2 @@
-Upper:
-Ini Adalah Upper Memakai
-Plus Jakarta Sans Custom
-
 Judul:
-Ini Adalah Judul
-Menggunakan Font
-DM Serif Display
-
-Ini adalah isi berita menggunakan font [[Plus Jakarta Sans Custom.]] Ini adalah isi berita menggunakan font Plus Jakarta Sans Custom. Ini adalah isi berita menggunakan font Plus Jakarta Sans Custom.
-
-Ini adalah isi berita menggunakan font [[Plus Jakarta Sans Custom.]] Ini adalah isi berita menggunakan font Plus Jakarta Sans Custom. Ini adalah isi berita menggunakan font Plus Jakarta Sans Custom.
+Mobil Terbakar Dekat Asrama Haji Surabaya, Pengendara Sempat Keluar
